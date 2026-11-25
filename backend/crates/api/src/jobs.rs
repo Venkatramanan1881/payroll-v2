@@ -68,15 +68,17 @@ pub async fn finalise(State(s): State<AppState>, headers: HeaderMap, Body(raw): 
     Ok(Json(json!({ "finalised": crate::days::finalise(&s, job.org_id).await? })))
 }
 
-/// J-AT3 (nightly): recalculate recent days (absent-pending turning absent, days without punches).
+/// J-AT3 (nightly): RG-07 escalations and auto-decisions, then recalculate recent days (absent-pending turning absent, days without punches).
 pub async fn attendance_sweep(State(s): State<AppState>, headers: HeaderMap, Body(raw): Body) -> ApiResult<Json<Value>> {
     check_caller(&s, &headers)?;
     let job: OrgJob = parse(raw)?;
+    // RG-07 first, so an auto-decision's punches are in the days the sweep recalculates next.
+    let requests = crate::regularise::sweep(&s, job.org_id).await?;
     let changed = crate::days::sweep(&s, job.org_id).await.map_err(|e| {
         tracing::warn!(error = %e, "attendance sweep failed");
         AppError::internal()
     })?;
-    Ok(Json(json!({ "changed": changed })))
+    Ok(Json(json!({ "changed": changed, "requests_actioned": requests })))
 }
 
 #[derive(Deserialize)]

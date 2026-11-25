@@ -881,3 +881,187 @@ async fn imports_notifications_and_reports_end_to_end() {
     let (s, _, b) = call_app(&jobs, Method::POST, "/internal/jobs/attendance-cleanup", None, &auth, None).await;
     assert_eq!(s, StatusCode::OK, "{b}");
 }
+
+/// A signed-in user for an employee, with the given built-in roles.
+async fn employee_user(w: &World, employee: &str, name: &str, roles: &[&str]) -> String {
+    let e: Uuid = employee.parse().unwrap();
+    let user: Uuid = sqlx::query_scalar("INSERT INTO app.users (org_id, kind, employee_id, display_name, state) VALUES ($1, 'employee', $2, $3, 'active') RETURNING id")
+        .bind(w.org).bind(e).bind(name).fetch_one(&w.pool).await.unwrap();
+    for r in roles {
+        sqlx::query("INSERT INTO app.user_roles (org_id, user_id, role_id) SELECT $1, $2, id FROM app.roles WHERE org_id = $1 AND builtin_key = $3")
+            .bind(w.org).bind(user).bind(*r).execute(&w.pool).await.unwrap();
+    }
+    issue_access_token(SECRET, user, w.org, session(&w.pool, w.org, user).await, "employee")
+}
+
+#[tokio::test]
+#[ignore = "writes to the database in DATABASE_URL"]
+async fn regularisation_and_corrections_end_to_end() {
+    let w = world().await;
+    let admin = Some(w.admin.as_str());
+    let jobs_token = "jobs-token-jobs-token-jobs-token-08";
+    let bearer = format!("Bearer {jobs_token}");
+    let auth = [("authorization", bearer.as_str())];
+    let jobs = api::router(w.state.clone().with_jobs_token(jobs_token));
+    let drain = || async {
+        for _ in 0..30 {
+            let left: i64 = sqlx::query_scalar("SELECT count(*) FROM app.outbox_events WHERE org_id = $1 AND dispatched_at IS NULL")
+                .bind(w.org).fetch_one(&w.pool).await.unwrap();
+            if left == 0 {
+                return;
+            }
+            let (s, _, b) = call_app(&jobs, Method::POST, "/internal/outbox/dispatch", None, &auth, None).await;
+            assert_eq!(s, StatusCode::OK, "{b}");
+        }
+        panic!("outbox not drained");
+    };
+    let dates: Vec<String> = sqlx::query_scalar(
+        "SELECT (t + i)::text FROM (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date AS t) x, unnest(ARRAY[-2, -1]) i ORDER BY i",
+    ).fetch_all(&w.pool).await.unwrap();
+    let (d1, d2) = (dates[0].clone(), dates[1].clone());
+
+    // Two approval levels (RG-05) for Chennai.
+    let (s, set) = post(&w, "/v1/attendance/policy-sets", "key-rg-ps1", json!({ "name": "Two levels", "valid_from": "2026-01-01", "values": { "rg_levels": 2 } })).await;
+    assert_eq!(s, StatusCode::CREATED, "{set}");
+    let (sid, sv) = (set["id"].as_str().unwrap().to_string(), set["draft_version"]["id"].as_str().unwrap().to_string());
+    let (s, _, b) = call(&w, Method::POST, &format!("/v1/attendance/policy-sets/{sid}/versions/{sv}/submit"), admin, &[("if-match", "\"1\"")], Some(json!({}))).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let (s, b) = post(&w, "/v1/attendance/policy-assignments", "key-rg-pa1",
+        json!({ "policy_set_id": sid, "level": "branch", "target_id": w.chn, "valid_from": "2026-01-01", "reason": "Two levels" })).await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+
+    // Kavi manages Asha; both rostered on GEN.
+    let gen = shift(&w, "key-rg-gen1", json!({ "code": "GEN", "name": "General", "valid_from": "2026-01-01" })).await;
+    let (_, kavi) = post(&w, "/v1/employees", "key-rg-kavi1", new_employee(&w, "Kavi", "+919800000091")).await;
+    let kavi_id = kavi["id"].as_str().unwrap().to_string();
+    let mut body = new_employee(&w, "Asha", "+919800000092");
+    body["job"]["reporting_manager_id"] = json!(kavi_id);
+    let (s, asha) = post(&w, "/v1/employees", "key-rg-asha1", body).await;
+    assert_eq!(s, StatusCode::CREATED, "{asha}");
+    let emp = asha["id"].as_str().unwrap().to_string();
+    roster(&w, &w.admin, "key-rg-ro1", json!([{ "employee_id": emp, "work_date": d1, "shift_id": gen }, { "employee_id": emp, "work_date": d2, "shift_id": gen }])).await;
+    let asha_t = employee_user(&w, &emp, "Asha", &["employee"]).await;
+    let kavi_t = employee_user(&w, &kavi_id, "Kavi", &["employee", "manager"]).await;
+    let (asha_t, kavi_t) = (Some(asha_t.as_str()), Some(kavi_t.as_str()));
+
+    // d1: in only (missed punch). d2: 40 minutes late.
+    for (n, (d, e)) in [(&d1, json!({ "employee_id": emp, "in_time": "09:00:00" })), (&d2, json!({ "employee_id": emp, "in_time": "09:40:00", "out_time": "18:00:00" }))].into_iter().enumerate() {
+        let (s, _, b) = call(&w, Method::POST, "/v1/attendance/manual-attendance", admin, &[("idempotency-key", &format!("key-rg-man{n}"))],
+            Some(json!({ "branch_id": w.chn, "work_date": d, "reason": "Device down", "entries": [e] }))).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+    }
+    drain().await;
+    let day_of = |d: String| {
+        let (w, emp) = (&w, emp.clone());
+        async move { call(w, Method::GET, &format!("/v1/attendance/employees/{emp}/days/{d}"), Some(&w.admin), &[], None).await.2 }
+    };
+    assert_eq!(day_of(d1.clone()).await["status"], "absent_pending");
+
+    // RG1: Asha asks for the missing out; the manager is told.
+    let regs = "/v1/attendance/regularisations";
+    let ask = json!({ "work_date": d1, "kind": "missed_punch", "requested": { "out_time": "18:00:00" }, "reason": "Forgot to punch out" });
+    let (s, _, r) = call(&w, Method::POST, regs, asha_t, &[("idempotency-key", "key-rg-r1")], Some(ask.clone())).await;
+    assert_eq!((s, r["state"].as_str(), r["levels"].as_i64(), r["current_approver"].as_str()), (StatusCode::CREATED, Some("pending"), Some(2), Some("manager")), "{r}");
+    let rid = r["id"].as_str().unwrap().to_string();
+    let (s, _, b) = call(&w, Method::POST, regs, asha_t, &[("idempotency-key", "key-rg-r2")], Some(ask)).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::CONFLICT, Some("request_already_pending")), "{b}");
+    let (s, _, b) = call(&w, Method::POST, regs, asha_t, &[("idempotency-key", "key-rg-rx")], Some(json!({ "work_date": d1, "kind": "late", "requested": { "out_time": "18:00:00" }, "reason": "x" }))).await;
+    assert_eq!((s, b["errors"][0]["field"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("requested")), "{b}");
+    let (_, _, n) = call(&w, Method::GET, "/v1/attendance/me/notifications", kavi_t, &[], None).await;
+    assert_eq!(n["items"][0]["event"], "RegularisationSubmitted", "{n}");
+    let (_, _, l) = call(&w, Method::GET, &format!("{regs}?awaiting_me=true"), kavi_t, &[], None).await;
+    assert_eq!(l["items"].as_array().map(Vec::len), Some(1), "{l}");
+    let (_, _, l) = call(&w, Method::GET, &format!("{regs}?awaiting_me=true"), admin, &[], None).await;
+    assert_eq!(l["items"].as_array().map(Vec::len), Some(0), "{l}");
+
+    // RG4: HR can't skip the manager; the manager approves level 1, then HR the last level.
+    let act = |what: &str| format!("{regs}/{rid}/{what}");
+    let (s, _, b) = call(&w, Method::POST, &act("approve"), admin, &[("if-match", "\"1\"")], Some(json!({}))).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::FORBIDDEN, Some("wrong_approver")), "{b}");
+    let (s, _, b) = call(&w, Method::POST, &act("approve"), kavi_t, &[("if-match", "\"1\"")], Some(json!({ "note": "OK" }))).await;
+    assert_eq!((s, b["state"].as_str(), b["level"].as_i64(), b["current_approver"].as_str()), (StatusCode::OK, Some("pending"), Some(2), Some("hr")), "{b}");
+    let (s, _, b) = call(&w, Method::POST, &act("approve"), kavi_t, &[("if-match", "\"2\"")], Some(json!({}))).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::FORBIDDEN, Some("wrong_approver")), "{b}");
+    let (s, _, b) = call(&w, Method::POST, &act("approve"), admin, &[("if-match", "\"2\"")], Some(json!({}))).await;
+    assert_eq!((s, b["state"].as_str(), b["decisions"].as_array().map(Vec::len)), (StatusCode::OK, Some("approved"), Some(2)), "{b}");
+    drain().await;
+    let day = day_of(d1.clone()).await;
+    assert_eq!((day["status"].as_str(), day["requests"].as_array().map(Vec::len)), (Some("present"), Some(1)), "{day}");
+
+    // RG6: cancelling voids the punch it wrote; the day goes back.
+    let (s, _, b) = call(&w, Method::POST, &act("cancel"), admin, &[("if-match", "\"3\"")], Some(json!({}))).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{b}");
+    let (s, _, b) = call(&w, Method::POST, &act("cancel"), admin, &[("if-match", "\"3\"")], Some(json!({ "reason": "Raised in error" }))).await;
+    assert_eq!((s, b["state"].as_str()), (StatusCode::OK, Some("cancelled")), "{b}");
+    drain().await;
+    assert_eq!(day_of(d1.clone()).await["status"], "absent_pending");
+
+    // RG-07: a late request left two days is escalated to HR by the sweep; HR rejects with a reason.
+    let (s, _, r) = call(&w, Method::POST, regs, asha_t, &[("idempotency-key", "key-rg-r3")],
+        Some(json!({ "work_date": d2, "kind": "late", "requested": { "in_time": "09:00:00" }, "reason": "Bus late" }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{r}");
+    let late = r["id"].as_str().unwrap().to_string();
+    sqlx::query("UPDATE app.regularisation_requests SET created_at = now() - interval '3 days' WHERE id = $1").bind(late.parse::<Uuid>().unwrap()).execute(&w.pool).await.unwrap();
+    let (s, _, b) = call_app(&jobs, Method::POST, "/internal/jobs/attendance-sweep", None, &auth, Some(json!({ "org_id": w.org }))).await;
+    assert_eq!((s, b["requests_actioned"].as_i64()), (StatusCode::OK, Some(1)), "{b}");
+    let (_, _, b) = call(&w, Method::GET, &format!("{regs}/{late}"), asha_t, &[], None).await;
+    assert_eq!((b["state"].as_str(), b["current_approver"].as_str()), (Some("escalated"), Some("hr")), "{b}");
+    let v = format!("\"{}\"", b["version"]);
+    let (s, _, b) = call(&w, Method::POST, &format!("{regs}/{late}/reject"), admin, &[("if-match", &v)], Some(json!({}))).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{b}");
+    let (s, _, b) = call(&w, Method::POST, &format!("{regs}/{late}/reject"), admin, &[("if-match", &v)], Some(json!({ "reason": "No proof" }))).await;
+    assert_eq!((s, b["state"].as_str()), (StatusCode::OK, Some("rejected")), "{b}");
+
+    // RG5: only the raiser withdraws.
+    let (_, _, r) = call(&w, Method::POST, regs, asha_t, &[("idempotency-key", "key-rg-r4")],
+        Some(json!({ "work_date": d2, "kind": "early", "requested": { "out_time": "18:30:00" }, "reason": "Stayed late" }))).await;
+    let early = r["id"].as_str().unwrap().to_string();
+    let (s, _, _) = call(&w, Method::POST, &format!("{regs}/{early}/withdraw"), kavi_t, &[("if-match", "\"1\"")], None).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, _, b) = call(&w, Method::POST, &format!("{regs}/{early}/withdraw"), asha_t, &[("if-match", "\"1\"")], None).await;
+    assert_eq!((s, b["state"].as_str()), (StatusCode::OK, Some("withdrawn")), "{b}");
+    let (_, _, l) = call(&w, Method::GET, regs, asha_t, &[], None).await;
+    assert_eq!(l["items"].as_array().map(Vec::len), Some(3), "{l}");
+
+    // C1 / C2: HR sets d2 present without a late mark, then voids it.
+    let ov = format!("/v1/attendance/employees/{emp}/days/{d2}/overrides");
+    let (s, _, b) = call(&w, Method::POST, &ov, admin, &[("idempotency-key", "key-rg-o0")], Some(json!({ "fields": { "status": "here" }, "reason": "x" }))).await;
+    assert_eq!((s, b["errors"][0]["field"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("fields.status")), "{b}");
+    let before = day_of(d2.clone()).await;
+    assert_eq!(before["late_mark"], true, "{before}");
+    let (s, _, b) = call(&w, Method::POST, &ov, admin, &[("idempotency-key", "key-rg-o1")], Some(json!({ "fields": { "late_mark": false }, "reason": "Approved by HOD" }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    let oid = b["override"]["id"].as_str().unwrap().to_string();
+    drain().await;
+    assert_eq!(day_of(d2.clone()).await["late_mark"], false);
+    let (s, _, b) = call(&w, Method::POST, &format!("/v1/attendance/day-overrides/{oid}/void"), admin, &[], Some(json!({ "reason": "Wrong day" }))).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let (s, _, b) = call(&w, Method::POST, &format!("/v1/attendance/day-overrides/{oid}/void"), admin, &[], Some(json!({ "reason": "Again" }))).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::CONFLICT, Some("already_voided")), "{b}");
+    drain().await;
+    assert_eq!(day_of(d2.clone()).await["late_mark"], true);
+
+    // W1: a late waiver for Chennai on d2 clears the mark; withdrawn, it comes back.
+    let (s, _, b) = call(&w, Method::POST, "/v1/attendance/waivers", admin, &[("idempotency-key", "key-rg-w0")], Some(json!({ "kind": "late", "work_date": d2, "reason": "Rain" }))).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("target_required")), "{b}");
+    let (s, _, wv) = call(&w, Method::POST, "/v1/attendance/waivers", admin, &[("idempotency-key", "key-rg-w1")], Some(json!({ "kind": "late", "work_date": d2, "branch_id": w.chn, "reason": "Rain" }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{wv}");
+    drain().await;
+    assert_eq!(day_of(d2.clone()).await["late_mark"], false);
+    let (_, _, l) = call(&w, Method::GET, "/v1/attendance/waivers", admin, &[], None).await;
+    assert_eq!(l["items"].as_array().map(Vec::len), Some(1), "{l}");
+    let (s, _, b) = call(&w, Method::POST, &format!("/v1/attendance/waivers/{}/withdraw", wv["id"].as_str().unwrap()), admin, &[], Some(json!({ "reason": "Sent early" }))).await;
+    assert_eq!((s, b["state"].as_str()), (StatusCode::OK, Some("withdrawn")), "{b}");
+    drain().await;
+    assert_eq!(day_of(d2.clone()).await["late_mark"], true);
+
+    // O1: the outage fills d1's missing out at shift end; d2 already has both.
+    let (s, _, b) = call(&w, Method::POST, "/v1/attendance/outage-regularisations", admin, &[("idempotency-key", "key-rg-x0")],
+        Some(json!({ "branch_id": w.chn, "from": "2026-01-01", "to": d2, "reason": "Device down" }))).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("range_too_long")), "{b}");
+    let (s, _, b) = call(&w, Method::POST, "/v1/attendance/outage-regularisations", admin, &[("idempotency-key", "key-rg-x1")],
+        Some(json!({ "branch_id": w.chn, "from": d1, "to": d2, "reason": "Device down" }))).await;
+    assert_eq!((s, b["affected_employees"].as_i64(), b["punches_added"].as_i64()), (StatusCode::ACCEPTED, Some(1), Some(1)), "{b}");
+    drain().await;
+    assert_eq!(day_of(d1.clone()).await["status"], "present");
+}

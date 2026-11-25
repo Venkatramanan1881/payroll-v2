@@ -127,14 +127,15 @@ pub(crate) async fn build(ctx: &mut Ctx, code: &str, pairs: &[(String, String)])
             )
             .await?,
         },
-        // r4 missed punches.
-        // shortcut: regularisations join this report with S8.
+        // r4 missed punches, with the regularisations raised for that date.
         "r4" => Report {
-            columns: cols(&["work_date", "employee_code", "full_name", "branch", "status", "first_in", "last_out", "finalised"]),
+            columns: cols(&["work_date", "employee_code", "full_name", "branch", "status", "first_in", "last_out", "finalised", "regularisations"]),
             rows: scoped(
                 ctx,
                 &format!("jsonb_build_object('work_date', d.work_date, {EMP}, 'branch', {BRANCH}, 'status', d.status, 'first_in', d.first_in,
-                    'last_out', d.last_out, 'finalised', d.finalised_at IS NOT NULL)"),
+                    'last_out', d.last_out, 'finalised', d.finalised_at IS NOT NULL,
+                    'regularisations', (SELECT string_agg(q.kind || ': ' || q.state, ', ' ORDER BY q.created_at) FROM app.regularisation_requests q
+                                        WHERE q.employee_id = e.id AND q.work_date = d.work_date))"),
                 days_join(&p),
                 "AND 'missed_punch' = ANY (d.flags) ORDER BY d.work_date, e.employee_code",
             )
@@ -257,7 +258,7 @@ pub async fn r26(ctx: Ctx, RawQuery(raw): RawQuery) -> ApiResult<Json<Value>> {
 
 /// Today by branch for the caller's scope (a manager's scope is the team), pending punch reviews, devices offline.
 // shortcut: not cached (TEC-04 asks 15 minutes per caller scope); `refresh` is accepted and ignored until it is.
-// shortcut: on_leave is 0 until Package 3; pending approvals count punch reviews only until S8.
+// shortcut: on_leave is 0 until Package 3.
 pub async fn dashboard(mut ctx: Ctx, RawQuery(raw): RawQuery) -> ApiResult<Json<Value>> {
     ctx.scope("dashboard.attendance")?;
     if let Some((k, _)) = query_pairs(raw)?.iter().find(|(k, _)| k != "refresh") {
@@ -284,12 +285,21 @@ pub async fn dashboard(mut ctx: Ctx, RawQuery(raw): RawQuery) -> ApiResult<Json<
         "",
     )
     .await?;
+    let requests = scoped(
+        &mut ctx,
+        "to_jsonb(count(*))",
+        |qb| {
+            qb.push(" JOIN app.regularisation_requests q ON q.employee_id = e.id AND q.state IN ('pending', 'escalated')");
+        },
+        "",
+    )
+    .await?;
     let offline: i64 = sqlx::query_scalar("SELECT count(*) FROM app.devices WHERE state = 'active' AND NOT is_online").fetch_one(&mut *ctx.tx).await?;
     ctx.commit().await?;
     Ok(Json(json!({
         "date": day,
         "branches": branches,
-        "pending_approvals": { "punch_reviews": pending.first().cloned().unwrap_or(json!(0)) },
+        "pending_approvals": { "punch_reviews": pending.first().cloned().unwrap_or(json!(0)), "regularisations": requests.first().cloned().unwrap_or(json!(0)) },
         "devices_offline": offline,
     })))
 }

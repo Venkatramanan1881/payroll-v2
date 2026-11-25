@@ -158,8 +158,7 @@ pub async fn read_all(mut ctx: Ctx) -> ApiResult<Json<Value>> {
 // ---------- J-AT8 reminders ----------
 
 /// MP-04 missed-punch reminders (shift end + X minutes, and next morning) and the managers' daily digest of
-/// pending punch reviews (NT-06). Each goes out once; the job is safe to run every 15 minutes.
-// shortcut: the digest counts punch reviews only; regularisations join it with S8.
+/// pending punch reviews and regularisations (NT-06). Each goes out once; the job is safe to run every 15 minutes.
 pub async fn reminders(s: &AppState, org: Uuid) -> ApiResult<Value> {
     let mut tx = db::begin_tenant(&s.pool, org, None).await?;
     let now: DateTime<Utc> = sqlx::query_scalar("SELECT now()").fetch_one(&mut *tx).await?;
@@ -198,15 +197,24 @@ pub async fn reminders(s: &AppState, org: Uuid) -> ApiResult<Value> {
             "SELECT u.id, count(*) AS n FROM app.punch_reviews r
              JOIN app.employee_job_versions jv ON jv.employee_id = r.employee_id AND jv.state = 'active' AND jv.valid @> $1::date
              JOIN app.users u ON u.employee_id = jv.reporting_manager_id AND u.state = 'active'
-             WHERE r.state = 'pending' GROUP BY u.id",
+             WHERE r.state = 'pending' GROUP BY u.id
+             UNION ALL
+             SELECT u.id, count(*) FROM app.regularisation_requests q
+             JOIN app.employee_job_versions jv ON jv.employee_id = q.employee_id AND jv.state = 'active' AND jv.valid @> q.work_date
+             JOIN app.users u ON u.employee_id = jv.reporting_manager_id AND u.state = 'active'
+             WHERE q.state = 'pending' AND q.current_level = 1 AND NOT q.over_limit GROUP BY u.id",
         )
         .bind(today())
         .fetch_all(&mut *tx)
         .await?;
+        let mut per_manager: std::collections::BTreeMap<Uuid, i64> = std::collections::BTreeMap::new();
         for p in pending {
+            *per_manager.entry(p.get("id")).or_default() += p.get::<i64, _>("n");
+        }
+        for (manager, n) in per_manager {
             let key = json!({ "date": today() });
-            let payload = json!({ "date": today(), "pending_punch_reviews": p.get::<i64, _>("n") });
-            digests += notify(&mut tx, org, p.get("id"), "ApprovalsPending", "manager", &key, &payload).await? as i32;
+            let payload = json!({ "date": today(), "pending_approvals": n });
+            digests += notify(&mut tx, org, manager, "ApprovalsPending", "manager", &key, &payload).await? as i32;
         }
     }
     tx.commit().await?;

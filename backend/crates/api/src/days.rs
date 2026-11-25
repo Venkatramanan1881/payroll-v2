@@ -461,14 +461,15 @@ pub(crate) async fn on_event(s: &AppState, org: Uuid, kind: &str, p: &Value) -> 
 // ---------- J-AT1 finalise, J-AT3 sweep ----------
 
 /// Finalises days whose window ended more than an hour ago with nothing open on them (§3.26, SM-AT-8):
-/// no pending flagged-punch review and no missed-punch flag.
-// shortcut: open regularisation requests also hold a day back once S8 adds them.
+/// no pending flagged-punch review, no open regularisation request and no missed-punch flag.
 pub(crate) async fn finalise(s: &AppState, org: Uuid) -> ApiResult<u64> {
     let mut tx = db::begin_tenant(&s.pool, org, None).await?;
     let n = sqlx::query(
         "UPDATE app.day_results d SET finalised_at = now()
          WHERE d.is_current AND d.finalised_at IS NULL AND (d.detail->>'finalise_after')::timestamptz < now()
            AND NOT ('missed_punch' = ANY(d.flags))
+           AND NOT EXISTS (SELECT 1 FROM app.regularisation_requests q WHERE q.employee_id = d.employee_id AND q.work_date = d.work_date
+                           AND q.state IN ('pending', 'escalated'))
            AND NOT EXISTS (SELECT 1 FROM app.punch_reviews r WHERE r.employee_id = d.employee_id AND r.state = 'pending'
                            AND r.punch_id::text IN (SELECT jsonb_array_elements_text(d.detail->'explanation'->'punches_used')))",
     )
@@ -636,9 +637,18 @@ async fn one_day(mut ctx: Ctx, id: Uuid, date: NaiveDate, raw: Option<String>) -
     let can_correct = lock.is_none() && allowed(&mut ctx, id, CORRECT, Access::Edit, &em).await?;
     doc["versions"] = versions;
     doc["pending_recalculation"] = json!(pending);
-    // shortcut: requests stay empty and "regularise" false until regularisation (S8).
-    doc["requests"] = json!([]);
-    doc["can"] = json!({ "regularise": false, "correct": can_correct });
+    doc["requests"] = sqlx::query_scalar(
+        "SELECT coalesce(jsonb_agg(jsonb_build_object('id', id, 'kind', kind, 'state', state, 'created_at', created_at) ORDER BY created_at), '[]')
+         FROM app.regularisation_requests WHERE employee_id = $1 AND work_date = $2",
+    )
+    .bind(id)
+    .bind(date)
+    .fetch_one(&mut *ctx.tx)
+    .await?;
+    let can_regularise = ctx.has("attendance.regularisation.request")
+        && lock.is_none()
+        && (ctx.employee_id == Some(id) || allowed(&mut ctx, id, "attendance.regularisation.request", Access::Edit, &em).await?);
+    doc["can"] = json!({ "regularise": can_regularise, "correct": can_correct });
     ctx.commit().await?;
     Ok(Json(doc))
 }
@@ -693,11 +703,19 @@ pub async fn features(mut ctx: Ctx) -> ApiResult<Json<Value>> {
     .bind(on.year() as f64)
     .fetch_one(&mut *ctx.tx)
     .await?;
+    // Counted as RG1 counts against RG-03.
+    let rg_used: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM app.regularisation_requests WHERE employee_id = $1 AND date_trunc('month', work_date) = date_trunc('month', $2::date)
+           AND state NOT IN ('withdrawn', 'rejected', 'auto_rejected', 'cancelled')",
+    )
+    .bind(me)
+    .bind(on)
+    .fetch_one(&mut *ctx.tx)
+    .await?;
     ctx.commit().await?;
     Ok(Json(json!({
         "punch": { "app": s.punch_app, "web": s.punch_web, "location_required": s.app_requires_location, "selfie_required": s.app_requires_selfie },
-        // shortcut: "used" counts come with regularisation (S8).
-        "regularisation": { "enabled": s.regularisation, "kinds": s.rg_types, "window_days": s.rg_window_days, "limit": s.rg_limit_overall, "used": 0 },
+        "regularisation": { "enabled": s.regularisation, "kinds": s.rg_types, "window_days": s.rg_window_days, "limit": s.rg_limit_overall, "used": rg_used },
         "optional_holidays": { "allowed": s.optional_holidays_per_year, "used": used },
         "shift_requests": s.shift_requests_enabled,
     })))

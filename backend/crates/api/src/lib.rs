@@ -22,6 +22,7 @@ pub mod policies;
 pub mod portal;
 pub mod punches;
 pub mod rate;
+pub mod regularise;
 pub mod reports;
 pub mod roster;
 pub mod shifts;
@@ -234,6 +235,17 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/attendance/reports/r23", get(at_reports::r23))
         .route("/v1/attendance/reports/r26", get(at_reports::r26))
         .route("/v1/attendance/dashboard/attendance", get(at_reports::dashboard))
+        .route("/v1/attendance/regularisations", get(regularise::list).post(regularise::raise))
+        .route("/v1/attendance/regularisations/{id}", get(regularise::get))
+        .route("/v1/attendance/regularisations/{id}/approve", post(regularise::approve))
+        .route("/v1/attendance/regularisations/{id}/reject", post(regularise::reject))
+        .route("/v1/attendance/regularisations/{id}/withdraw", post(regularise::withdraw))
+        .route("/v1/attendance/regularisations/{id}/cancel", post(regularise::cancel))
+        .route("/v1/attendance/employees/{id}/days/{date}/overrides", post(regularise::override_create))
+        .route("/v1/attendance/day-overrides/{id}/void", post(regularise::override_void))
+        .route("/v1/attendance/waivers", get(regularise::waivers).post(regularise::waiver_create))
+        .route("/v1/attendance/waivers/{id}/withdraw", post(regularise::waiver_withdraw))
+        .route("/v1/attendance/outage-regularisations", post(regularise::outage))
         .route("/v1/attendance/notification-settings", get(notify::settings).put(notify::settings_put))
         .route("/v1/attendance/me/notifications", get(notify::mine))
         .route("/v1/attendance/me/notifications/read-all", post(notify::read_all))

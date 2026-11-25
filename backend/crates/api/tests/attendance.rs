@@ -666,9 +666,10 @@ async fn day_results_and_recalculation_end_to_end() {
     let (_, _, l) = call(&w, Method::GET, &list, hr, &[], None).await;
     assert_eq!(l["items"].as_array().map(Vec::len), Some(0), "{l}");
 
-    // J-AT1: the full day is past its window + 1 h and clear → finalised; the missed-punch days stay provisional.
+    // J-AT1: the full day is past its window + 1 h and clear → finalised (so is the absent day before d1, calculated
+    // because a punch also recalculates the day before); the missed-punch days stay provisional.
     let (s, _, b) = job("/internal/jobs/finalise", json!({ "org_id": w.org })).await;
-    assert_eq!((s, b["finalised"].as_i64()), (StatusCode::OK, Some(1)), "{b}");
+    assert_eq!((s, b["finalised"].as_i64()), (StatusCode::OK, Some(2)), "{b}");
     let (_, _, b) = call(&w, Method::GET, &day_uri(&d3), admin, &[], None).await;
     assert_eq!((b["state"].as_str(), b["status"].as_str()), (Some("finalised"), Some("present")), "{b}");
     let (_, _, b) = call(&w, Method::GET, &day_uri(&d2), admin, &[], None).await;

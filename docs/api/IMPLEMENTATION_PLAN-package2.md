@@ -13,7 +13,7 @@ Code layout follows Package 1: pure rules in `crates/core` (no HTTP, no SQL), ro
 | S4 | Devices, fences, phone binding | D1–D5, F1–F5, P3 | Fence distance; token hashing | Token shown once, rotation stops the old one |
 | S5 ✅ | Punching | P1, P2, P4–P9 (+ F1–F5, P3 binding pulled from S4) | Punch time rules (DEC-21, §3.4); fence check (PC-04/14/16); flags | Offline repeat makes no duplicate; flagged punch reviewed by someone else; raw punch never changes |
 | S6 ✅ | Day engine | (library only, `core::day`) | §7 steps: sessions (PR), breaks (BK), late (LA), early (EC/EA), missed punches (MP), day status and rounding (DS/RD), holidays (HD-03), unapproved absence (UA). Built in sub-slices, each with table-driven tests from the BRD examples (E1–E18, W1–W11) | Every worked example in the BRD gives the documented result |
-| S7 | Recalculation | J-AT2, J-AT1, J-AT3, DY1–DY3, M2, M3, M1 | Input fingerprint; version rules | A punch updates its day within seconds; no older result overwrites a newer one |
+| S7 ✅ | Recalculation | J-AT2, J-AT1, J-AT3, DY1–DY3, M2, M3, M1 | Input fingerprint; version rules | A punch updates its day within seconds; no older result overwrites a newer one |
 | S8 | Regularisation and corrections | RG1–RG6, C1–C2, W1, O1 | Approver routing; window and limit checks | Two-level approval, escalation, cancellation reverse the day |
 | S9 | Periods and lock | L1–L9, J-AT5, J-AT7 | Period generation; checklist; shadow recalculation and adjustments; period-end penalties | Lock, step back, correction after lock posts to the next period; payroll input file |
 | S10 | Imports, notifications, reports | P10, R6, J-AT6, N1–N2, J-AT8, J-AT4, J-AT9, RP1–RP8, DB1 | Import row validation | Reports respect scope and export |

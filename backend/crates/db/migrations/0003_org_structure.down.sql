@@ -1,0 +1,14 @@
+DROP TABLE app.reference_name_history;
+DROP FUNCTION app.record_name_history();
+DROP TYPE app.named_item_kind;
+DROP TABLE app.org_settings_versions;
+DROP TABLE app.payroll_groups;
+DROP TYPE app.pay_frequency;
+DROP TABLE app.contractors;
+DROP TABLE app.exit_reasons;
+DROP TABLE app.employee_types;
+DROP TABLE app.categories;
+DROP TABLE app.designations;
+DROP TABLE app.departments;
+DROP TABLE app.branches;
+DROP FUNCTION app.check_time_zone();

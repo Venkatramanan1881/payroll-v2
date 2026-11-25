@@ -1,0 +1,501 @@
+TECHNICAL SPECIFICATION DOCUMENT
+Payroll App: Modular Attendance, Leave and Payroll Platform
+Version: 0.2 (draft for review)
+Date: 16 November 2026
+Owner: Venkat
+Companion to: BRD v0.8
+Status: Draft, not yet approved
+Replaces: version 0.1 (kept)
+
+Changes from 0.1:
+- Companion BRD is now v0.8.
+- Section 5.3: rounding follows BRD BR-15.
+- Section 8: employee sign-in codes go through Firebase phone sign-in (decision D-12, 16 November 2026).
+- Section 20: D2 and D4 decided.
+- Section 19 estimates are unchanged and still assume an Indian SMS provider. With Firebase phone sign-in the sign-in SMS line is about 8, 273 and 1,449 dollars a month at sizes A, B and C (section 19.3).
+
+
+======================================================================
+1. PURPOSE AND SCOPE
+======================================================================
+
+This document says how the application in BRD v0.8 will be built and run. It covers version 1 in detail and shows where versions 2 and 3 plug in. It ends with a monthly running-cost estimate at three sizes.
+
+"Monthly estimate" is read here as the monthly cost of running the system (hosting, database, storage, messages). It does not cover development effort.
+
+Items marked (proposed) are recommendations to confirm at the start of the build.
+
+
+======================================================================
+2. STACK
+======================================================================
+
+Backend:          Rust
+Web app:          Next.js
+Mobile app:       Flutter (Android and iOS)
+Database:         Postgres, hosted on Supabase for now
+Compute:          Google Cloud Run (services and jobs)
+Web hosting:      Firebase App Hosting (runs the Next.js app on Cloud Run with a CDN in front)
+Push messages:    Firebase Cloud Messaging
+File storage:     Google Cloud Storage
+Timed work:       Google Cloud Scheduler
+Queued work:      Google Cloud Tasks
+Secrets:          Google Secret Manager
+Logs and alerts:  Google Cloud Logging and Monitoring
+Region:           Mumbai (asia-south1) for all Google services; the nearest available region for Supabase
+
+Proposed Rust libraries: Axum (HTTP), Tokio (runtime), SQLx (database, with checked queries and migrations), rust_decimal (money), chrono and chrono-tz (time), argon2 (password hashing).
+
+
+======================================================================
+3. ARCHITECTURE
+======================================================================
+
+3.1 COMPONENTS
+
+1. Web app (Next.js). Admin screens, vendor console, dashboards, employee web check-in. Talks only to the API.
+2. Mobile app (Flutter). Employee app: punch, roster, requests, balances, payslips later. Talks only to the API.
+3. API service (Rust, Cloud Run). All business logic, access checks and calculations. Stateless.
+4. Device gateway (Rust, Cloud Run). A separate small service that receives punches pushed by eSSL devices and writes raw punches. Kept separate so device traffic cannot slow the API, and so other device makes can be added beside it.
+5. Jobs (Rust, Cloud Run jobs). Long or heavy work: nightly finalisation, period-end processing, and pay runs from version 2.
+6. Database (Postgres on Supabase). The single source of truth for all organisations.
+7. File store (Cloud Storage). Documents, selfies, bill photos, exports.
+8. Scheduler and queue (Cloud Scheduler, Cloud Tasks). Start timed work and spread it across organisations.
+9. Push (Firebase Cloud Messaging), SMS and email providers. Outbound messages.
+
+3.2 MAIN FLOWS
+
+Punch from a device:
+device -> device gateway -> raw punch saved -> task queued "recalculate employee and date" -> API recalculates the day -> dashboards update.
+
+Punch from app or web:
+app or browser reads location -> API checks access, geo-fence and accuracy -> raw punch saved (flagged if needed) -> same recalculation task.
+
+Request (leave, permission, on-duty, regularisation):
+employee -> API validates limits and eligibility -> approver notified -> on approval, affected days are recalculated.
+
+Timed work:
+Cloud Scheduler -> API job endpoint -> one Cloud Task per organisation -> each task processes that organisation only.
+
+3.3 DESIGN RULES
+
+- The API and gateway hold no state between requests, so Cloud Run can start and stop instances freely.
+- All calculation lives in one Rust library with no database or network calls inside it. The API, the jobs and the tests all call the same code, so results cannot differ between them.
+- Every write that affects pay or attendance is recorded in the audit log in the same database transaction.
+
+
+======================================================================
+4. SEPARATE ORGANISATION HANDLING
+======================================================================
+
+Model: one database, one set of tables, shared by all organisations. Every table that holds client data has an organisation ID column.
+
+4.1 ENFORCEMENT IN THE DATABASE
+
+- Row-level security is switched on for every client table. The policy allows a row only when its organisation ID equals the organisation set for the current transaction.
+- Each API request runs inside one database transaction. The first statement sets the organisation ID for that transaction only, taken from the signed-in user's verified token, never from the request body.
+- The API connects with a database role that cannot bypass row-level security. Because the organisation is set per transaction, this works with connection pooling.
+- If the organisation is not set, policies return no rows. A missing setting fails closed.
+
+4.2 ENFORCEMENT IN THE APPLICATION
+
+- Organisation ID is part of every primary lookup and every unique rule (for example employee code is unique within an organisation, not globally).
+- Indexes on large tables start with organisation ID.
+- Files are stored under a path that starts with the organisation ID; links are issued only after the same access check.
+- Queue tasks and timed jobs carry one organisation ID and process only that organisation.
+- Caches, exports and report files are keyed by organisation.
+
+4.3 VENDOR ACCESS
+
+- The vendor console uses separate vendor accounts. It reads organisation-level facts (plan, usage, health) from vendor tables, not client tables.
+- Support access to a client's data needs an approval record (VC-03), is limited in time, sets the organisation explicitly, and writes every action to an audit log the client can see.
+
+4.4 MODULES PER ORGANISATION
+
+- A table holds which modules are on for each organisation, with dates. The API refuses calls to a module that is off; the web and mobile apps hide its menus.
+- Client-specific payroll rules (version 2) are registered per organisation and loaded only for that organisation.
+
+4.5 TESTS
+
+- An automated test signs in as organisation A and attempts to read and change organisation B's records through every API route, report, export and file link. It must fail every time (BRD AT20).
+- A check in the build fails if a new client table is added without row-level security.
+
+4.6 GROWTH PATH
+
+- Punches and daily results are the largest tables. They are partitioned by month when they grow large.
+- A very large or sensitive client can later be moved to its own database without code changes, because every query already carries the organisation.
+
+
+======================================================================
+5. BACKEND DESIGN
+======================================================================
+
+5.1 CODE LAYOUT (ONE RUST WORKSPACE)
+
+- core: calculation engine and rules. Pure functions: inputs in, results and explanations out.
+- db: queries, migrations, row-level security set-up.
+- api: HTTP routes, sign-in, access checks, request validation.
+- gateway: device push endpoints.
+- jobs: timed and heavy work.
+- shared: types, errors, time and money helpers.
+
+5.2 CALCULATION ENGINE
+
+- Input for one employee and date: raw punches, the policy version in force, shift or roster entry, holiday and weekly-off facts, approved leave, permission and on-duty, counters so far.
+- Output: day status, hours, late and early minutes, marks, flags, and an explanation listing the punches and rules used.
+- Processing is repeatable: the same input always gives the same output (BRD BR-02). Results are stored with the policy version and the IDs of the punches used.
+- Recalculation is keyed by organisation, employee and date. Any new punch, approval or settings change queues that key. Duplicate queue entries are harmless.
+- Period-level rules (count-based penalties, excess absence, absconding) run at period end over the stored daily results.
+
+5.3 MONEY AND TIME
+
+- Amounts are exact decimals in Rust and NUMERIC in Postgres. Floating point is not used for money or for hours that feed pay.
+- All timestamps are stored in UTC. Each branch has a time zone; attendance dates are worked out in the branch's local time.
+- Rounding follows BRD BR-15: rates are never rounded inside a calculation; each amount is rounded to 2 decimals when it becomes a line; totals are sums of lines; net pay is then rounded by PY-06. Every rounding call in code names its rounding mode explicitly; no library default is relied on.
+
+5.4 SETTINGS AND POLICY VERSIONS
+
+- Each settings group is stored as a versioned record with a start date. Editing creates a new version.
+- Settings are validated against a schema in the core library, so the web app, API and engine agree on the allowed options.
+- The roughly 360 BRD settings are data, not code: adding an option is a schema change plus engine support, with no change to table design.
+
+5.5 ERRORS AND RETRIES
+
+- Device pushes and app punches carry a unique key so a retry never creates a second punch.
+- Queue tasks and timed jobs are safe to run twice (BRD TB-03, AT21).
+
+
+======================================================================
+6. DATA MODEL (MAIN TABLES)
+======================================================================
+
+Platform: organisations, plans, organisation_modules, vendor_users, support_access, announcements.
+Structure: branches, geo_fences, departments, designations, categories, employee_types, contractors.
+People: employees, employee_history, employee_branches (master and allowed), users, roles, role_permissions, user_scopes.
+Devices and punches: devices, device_enrolments, punches (raw, never updated), punch_flags.
+Schedule: shifts, break_rules, rosters, weekly_offs, holiday_calendars, holidays.
+Policy: policy_sets, policy_versions, policy_assignments.
+Attendance: daily_results, daily_result_punches, period_counters, attendance_periods, period_locks.
+Requests: leave_requests, permission_requests, on_duty_requests, regularisation_requests, approvals.
+Leave: leave_types, leave_balances, leave_ledger, comp_off_ledger.
+Opening balances: opening_balances.
+Messages: notifications, notification_settings, device_tokens.
+Control: audit_log, settings_history, job_runs.
+Version 2 adds: payroll_groups, pay_masters, pay_components, pay_runs, pay_run_lines, payslips, payments, advances, loans, loan_schedule, reimbursements, client_rules, ledger_mappings.
+Version 3 adds: document_types, documents, checklists, checklist_items, assets, daily_allowance_payouts, overtime_requests, projects, tasks, time_entries, performance records.
+
+Rules for all client tables: organisation ID column, row-level security on, created and updated time, created by. Raw punches and the audit log are insert-only.
+
+
+======================================================================
+7. API
+======================================================================
+
+- JSON over HTTPS, versioned under /v1.
+- Grouped by module: /org, /employees, /shifts, /rosters, /punches, /attendance, /leave, /permissions, /holidays, /reports, /dashboards, /settings, /vendor.
+- Every route declares the module it belongs to, the permission it needs and the data scope it honours. A route with no declaration fails the build.
+- Lists are paged and filtered on the server. Reports and exports larger than a set size are produced in the background and delivered as a file link.
+- The same API serves web and mobile. There is no separate mobile backend.
+
+
+======================================================================
+8. SIGN-IN AND ACCESS
+======================================================================
+
+Decided: sessions, roles and access are built into the Rust backend, so they do not depend on Supabase. Employee one-time codes are sent and checked by Firebase phone sign-in (D-12); the backend verifies the Firebase result and then issues its own session.
+
+- Employees: mobile number and one-time code through Firebase phone sign-in (D-12). A long-lived session on the phone keeps SMS volume low.
+- Admin users: email and password, with a second step by authenticator app.
+- Sessions: short-lived access token plus a refresh token that can be revoked. The token carries user, organisation, role and scope.
+- Access: role permissions and branch or department scope are checked on every request in the API, in addition to the database's organisation check.
+
+Not chosen: an Indian SMS provider. It is billed per SMS at a rate about 20 times lower for India (see section 19).
+
+If an Indian SMS provider is used later (for example for notifications), it requires sender and template registration before sending.
+
+
+======================================================================
+9. PUNCH INTAKE
+======================================================================
+
+9.1 eSSL DEVICES
+
+- Devices are configured with the gateway's address and push punches to it. Each device is registered by serial number against an organisation and branch. Pushes from an unknown serial number are rejected and logged.
+- The gateway stores the raw payload, converts each record to a raw punch using the device's enrolment-ID mapping, and acknowledges the device only after the punch is saved.
+- Device time is stored as sent, along with server receipt time, so clock drift and late sync can be flagged (BRD PC-07, PC-08).
+- Secure connection: Cloud Run redirects plain HTTP calls to HTTPS. If a device model cannot send over HTTPS, a small relay with a fixed address sits in front and forwards to the gateway. This must be tested on the actual models before the build of this part starts.
+- The gateway is written against an interface so that another make, or the vendor's own device, is a new adapter and not a change to the core.
+
+9.2 APP AND WEB PUNCHES
+
+- The app or browser reads location and accuracy at the moment of the punch and sends them with the punch.
+- The server calculates the distance to each fence that applies to the employee (master and allowed branches). The client's own opinion of "inside" is never trusted.
+- Outcomes follow the BRD settings: accept, record and flag, or block; accuracy threshold; location unavailable; on-duty and work-from-home days.
+- Selfie punches upload the photo directly to Cloud Storage through a short-lived upload link, then send the punch with the file reference.
+
+9.3 OFFLINE PUNCHES (MOBILE)
+
+- A punch made without a network is saved on the phone with the phone's time and a reading from the phone's uptime clock.
+- On sync, the server compares the two to detect a changed phone clock and flags the punch if they disagree.
+- Each offline punch carries a unique key, so syncing twice does not duplicate it.
+
+
+======================================================================
+10. TIMED AND BACKGROUND WORK
+======================================================================
+
+Cloud Scheduler calls a protected job endpoint with a signed identity token. The endpoint queues one Cloud Task per organisation. Each run is recorded in job_runs with its status, and failures appear in the vendor health view.
+
+Timed jobs for version 1 (times in India time, all adjustable):
+J1  Nightly finalisation of the previous day, all organisations: 03:00
+J2  Missed-punch reminders: every 15 minutes
+J3  Approval escalations: hourly
+J4  Device offline check: every 5 minutes
+J5  Leave accrual: daily 00:30
+J6  Comp-off expiry: daily 00:45
+J7  Period-end rules and pre-lock checklist: daily 04:00
+J8  Absconding check: daily 05:00
+J9  Manager digest of pending approvals: daily 09:00
+J10 Vendor renewal reminders and limit checks: daily 08:00
+J11 Dashboard summary refresh: every 15 minutes
+J12 Clean-up of expired links and sessions: daily 01:00
+Added later:
+J13 Daily pay for the previous day (version 2): daily 06:00
+J14 Loan and advance recovery schedule (version 2): with each pay run
+J15 Daily allowance payout list and document expiry reminders (version 3): daily 06:00
+
+Queued work (Cloud Tasks): recalculation of an employee and date, bulk recalculation after a settings change, report and export generation, notification sending.
+
+Heavy work (Cloud Run jobs): nightly finalisation for large organisations, period-end processing, and pay runs from version 2. Jobs run to completion outside request time limits.
+
+
+======================================================================
+11. FILE STORAGE
+======================================================================
+
+- One private bucket per environment in Mumbai. No public access.
+- Path: organisation ID / kind / year-month / file. Kinds: selfies, documents, bills, exports, imports.
+- Upload and download only through short-lived signed links issued by the API after an access check. File links are never stored in the client apps.
+- Retention by lifecycle rule: selfies deleted after 90 days (proposed), exports after 30 days, documents kept as the BRD setting says.
+- The database stores the file's path, type, size and checksum, never the file itself.
+- Uploads are limited by type and size (BRD DC-06) and checked on the server.
+
+
+======================================================================
+12. WEB APP (NEXT.JS)
+======================================================================
+
+- One Next.js app with three areas: vendor console, organisation admin, employee self-service.
+- Hosted on Firebase App Hosting. Region availability for Mumbai to be confirmed at set-up; if not offered, the same app runs as a Cloud Run service.
+- Menus and routes are built from the organisation's enabled modules and the user's role.
+- English, Tamil and Hindi through translation files; the user's language is stored on their profile.
+- Web check-in uses the browser's location feature and needs the site served over HTTPS.
+- Settings screens are generated from the same settings schema the backend validates against, with the plain-language summary required by the BRD.
+
+
+======================================================================
+13. MOBILE APP (FLUTTER)
+======================================================================
+
+- One code base for Android and iOS.
+- Version 1 features: sign-in, punch with location and optional selfie, offline punch queue, roster, attendance view, leave, permission, on-duty and regularisation requests, approvals for managers, notifications, language choice.
+- Local storage on the phone holds only the offline punch queue and cached lists, encrypted.
+- Push messages through Firebase Cloud Messaging.
+- The app shows only the modules the organisation's plan includes.
+
+
+======================================================================
+14. NOTIFICATIONS
+======================================================================
+
+- In-app: stored in the database and shown in web and mobile.
+- Push: Firebase Cloud Messaging.
+- Email: a transactional email provider (to be chosen).
+- SMS and WhatsApp: through an Indian provider, switched on per organisation. These are charged per message and should be passed on to the client or capped by plan.
+- Each event's channels and recipients follow the BRD notification settings.
+
+
+======================================================================
+15. SECURITY AND PRIVACY
+======================================================================
+
+- All traffic encrypted in transit. Database and file store encrypted at rest.
+- Bank account numbers and identity numbers are encrypted in the database at field level and masked on screen by default.
+- Passwords hashed with a memory-hard algorithm. Second step for admin roles.
+- Secrets held in Secret Manager, never in code or build files.
+- Each Cloud Run service runs under its own service account with the least access it needs.
+- Rate limits on sign-in, one-time codes and punch routes.
+- Audit log is insert-only and cannot be edited through the application.
+- Location is read only at the moment of a punch (BRD PC-R15).
+- Consent wording for location, selfie and document capture is shown in the app and recorded.
+- Daily database backups; point-in-time recovery from the Growth size; a restore is tested every quarter.
+
+
+======================================================================
+16. ENVIRONMENTS, DEPLOYMENT AND OPERATIONS
+======================================================================
+
+- Three environments: development, test, live. Test and live are separate Google projects and separate Supabase projects.
+- Database changes are applied by versioned migrations as part of deployment.
+- Build and deploy pipeline: on merge, run tests (including the organisation-separation tests and the BRD worked examples), build containers, deploy to test; live deploys are approved manually.
+- Minimum instances: one each for the API and gateway in live, so punches are never delayed by a cold start.
+- Monitoring: error rate, response time, queue backlog, failed job runs, device offline counts, database connections and size. Alerts go to the vendor team.
+- Uptime checks on the API, gateway and web app.
+
+
+======================================================================
+17. PORTABILITY (SUPABASE FOR NOW)
+======================================================================
+
+- Only standard Postgres features are used: tables, row-level security, NUMERIC, partitions, migrations.
+- Supabase's own sign-in, file storage, realtime and edge functions are not used.
+- Moving to another Postgres host is a backup, a restore and a change of connection string.
+
+
+======================================================================
+18. CAPACITY ASSUMPTIONS
+======================================================================
+
+These drive the estimate in section 19. Replace them with real figures after the first clients go live.
+
+Per employee: 26 working days a month, 4 punches a day, 60 API calls per working day (all sources), 12 web page requests per working day averaged across admins and employees.
+Per device: about 2 contacts a minute with the gateway, including heartbeats (to be confirmed against eSSL's protocol).
+Punch source: 70% device, 30% app or web.
+Request time: 0.05 seconds for an API call, 0.02 for a device contact, 0.10 for a web page.
+Database growth: about 1.8 MB per employee per year (punches, daily results, requests, audit).
+Files: about 10 MB per employee in steady state (selfies on for 30% of employees with 90-day retention; documents from version 3).
+Sign-in codes: 70% of employees use the app; 0.6 SMS per app user per month.
+
+Three sizes:
+A  Launch:  10 organisations,   1,000 employees,  15 devices
+B  Growth: 100 organisations,  10,000 employees, 150 devices
+C  Scale:  300 organisations,  50,000 employees, 600 devices
+
+
+======================================================================
+19. MONTHLY ESTIMATE
+======================================================================
+
+List prices in US dollars as looked up on 15 November 2026. Converted at 95 rupees to the dollar. Taxes are extra. Figures are estimates built on section 18, not quotations.
+
+19.1 PRICES USED
+
+Cloud Run services, Mumbai (Tier 1), request-based: $0.000024 per vCPU-second, $0.0000025 per GiB-second, $0.40 per million requests; an idle minimum instance $0.0000025 per vCPU-second and per GiB-second. Free each month: 180,000 vCPU-seconds, 360,000 GiB-seconds, 2 million requests.
+Cloud Run jobs: $0.000018 per vCPU-second, $0.000002 per GiB-second.
+Supabase: Pro plan $25 a month including $10 of compute credit; compute per project Micro $10, Small $15, Medium $60, Large $110, XL $210, 2XL $410; 8 GB disk included, then $0.125 per GB; point-in-time recovery $100 a month for 7 days.
+Cloud Storage, Mumbai: about 2 rupees per GB a month.
+Cloud Scheduler: $0.10 per job a month after 3 free jobs.
+Cloud Tasks: first 1 million operations free, then $0.40 per million.
+Firebase App Hosting bandwidth: 10 GiB free, then $0.15 to $0.20 per GiB.
+Firebase Cloud Messaging: no charge.
+Sign-in SMS through an Indian provider: about 0.25 rupees per SMS plus 18% GST.
+Firebase phone sign-in to India (alternative): $0.07 per SMS after the first 10 a day.
+
+19.2 ESTIMATE BY SIZE (US DOLLARS PER MONTH)
+
+A  LAUNCH (10 organisations, 1,000 employees)
+Cloud Run services (API, gateway, web)      19.81
+Cloud Run jobs                               0.36
+Web bandwidth                                0.33
+Database (Pro, Small compute, test project) 40.00
+Cloud Storage                                1.21
+Cloud Scheduler                              1.20
+Cloud Tasks                                  0.00
+Sign-in SMS (Indian provider)                1.30
+Email (allowance)                            5.00
+Logs, secrets, builds (allowance)            5.00
+Domain and miscellaneous                     2.00
+Subtotal                                    76.22
+Contingency 25%                             19.05
+TOTAL                                       95.27   about 9,100 rupees   about 9 rupees per employee
+
+B  GROWTH (100 organisations, 10,000 employees)
+Cloud Run services (API, gateway, web)      69.16
+Cloud Run jobs                               2.16
+Web bandwidth                               19.08
+Database (Pro, Large compute, recovery)    236.25
+Cloud Storage                                7.10
+Cloud Scheduler                              1.20
+Cloud Tasks                                  0.80
+Sign-in SMS (Indian provider)               13.04
+Email (allowance)                           15.00
+Logs, secrets, builds (allowance)           15.00
+Domain and miscellaneous                     2.00
+Subtotal                                   380.79
+Contingency 25%                             95.20
+TOTAL                                      475.98   about 45,200 rupees   about 4.5 rupees per employee
+
+C  SCALE (300 organisations, 50,000 employees)
+Cloud Run services (API, gateway, web)     237.56
+Cloud Run jobs                               8.64
+Web bandwidth                              102.39
+Database (Pro, 2XL compute, recovery)      545.25
+Cloud Storage                               35.50
+Cloud Scheduler                              1.20
+Cloud Tasks                                  5.60
+Sign-in SMS (Indian provider)               65.21
+Email (allowance)                           50.00
+Logs, secrets, builds (allowance)           50.00
+Domain and miscellaneous                     2.00
+Subtotal                                 1,103.36
+Contingency 25%                            275.84
+TOTAL                                    1,379.19   about 1,31,000 rupees   about 2.6 rupees per employee
+
+19.3 WHAT THE NUMBERS SAY
+
+- The database is the largest line at every size (49% to 62% of the subtotal). Its cost moves in steps when the compute size is raised, not smoothly.
+- Compute on Cloud Run stays small because Rust uses little processor time per request. About 16 to 27 dollars a month of it is the cost of keeping instances warm so punches are not delayed.
+- Device heartbeats are a large share of request volume. If the real contact rate is higher than 2 a minute, the gateway line rises in proportion.
+- Sign-in SMS is cheap through an Indian provider. Through Firebase phone sign-in the same volume would cost about 8 dollars at size A, 273 at size B and 1,449 at size C, which at size C is more than everything else combined.
+
+19.4 NOT INCLUDED
+
+- Development and support staff.
+- SMS and WhatsApp notifications to employees (per message; pass on to the client or cap by plan).
+- GST and other taxes on cloud bills.
+- App store accounts: the Apple developer programme (about 99 dollars a year) and Google Play (a one-time fee of about 25 dollars). Check current fees.
+- A relay for eSSL devices, only if they cannot send over HTTPS: allow about 10 to 15 dollars a month for a small always-on machine with a fixed address. Not looked up.
+- Map use for picking geo-fence points on screen: expected to be within free usage at these sizes. Not looked up.
+- Version 2 and 3 load: pay runs and payslip files add little compute; document storage is already allowed for in the storage line.
+- A paid support plan from Google or Supabase.
+
+19.5 WHEN TO REVISIT
+
+- After the first three clients: replace section 18 with measured calls per employee and device contact rates.
+- Raise database compute when processor use stays above 70% or connections near the limit.
+- Around size C, compare Supabase with Google's own managed Postgres in Mumbai, since the database dominates the bill and the design allows the move (section 17).
+
+
+======================================================================
+20. OPEN TECHNICAL DECISIONS
+======================================================================
+
+D1. Can the eSSL models in use push over HTTPS, and how often do they contact the server? Test on real devices first.
+D2. Sign-in codes: decided, Firebase phone sign-in (D-12, 16 November 2026).
+D3. Which email provider (and an SMS provider for notifications, if SMS notifications are used).
+D4. Supabase region: decided, a Mumbai region is available on the chosen plan (D-14, 16 November 2026).
+D5. Firebase App Hosting in Mumbai, or the web app as a plain Cloud Run service.
+D6. Selfie retention period (90 days proposed).
+D7. Build pipeline tool.
+D8. Whether point-in-time recovery starts at launch (adds 100 dollars a month) or at the Growth size.
+
+
+======================================================================
+21. PRICE SOURCES (LOOKED UP 15 NOVEMBER 2026)
+======================================================================
+
+Cloud Run pricing: https://cloud.google.com/run/pricing
+Cloud Run regions and price tiers: https://docs.cloud.google.com/run/docs/locations
+Cloud Run HTTP to HTTPS redirect: https://docs.cloud.google.com/run/docs/triggering/https-request
+Supabase pricing: https://supabase.com/pricing
+Cloud Scheduler pricing: https://cloud.google.com/scheduler/pricing
+Cloud Tasks pricing: https://cloud.google.com/tasks/pricing
+Firebase App Hosting costs: https://firebase.google.com/docs/app-hosting/costs
+Firebase pricing (Cloud Messaging at no charge): https://firebase.google.com/pricing
+Phone sign-in SMS price for India: https://cloud.google.com/identity-platform/pricing
+Object storage price range in India regions: https://opsiocloud.com/in/blogs/cloud-pricing-comparison-india-2026/
+Domestic SMS price: https://www.authgear.com/post/best-otp-service-providers/
+Exchange rate: https://wise.com/in/currency-converter/usd-to-inr-rate
+
+
+END OF DOCUMENT

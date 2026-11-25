@@ -1,0 +1,7 @@
+# Build output
+target/
+
+# Secrets and local settings
+.env
+*.env
+.claude/settings.local.json

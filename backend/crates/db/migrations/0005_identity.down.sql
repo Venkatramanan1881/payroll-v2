@@ -1,0 +1,19 @@
+ALTER TABLE app.bulk_imports DROP CONSTRAINT bulk_imports_uploaded_by_fk;
+ALTER TABLE app.status_change_requests
+  DROP CONSTRAINT status_requests_raised_by_fk,
+  DROP CONSTRAINT status_requests_decided_by_fk,
+  DROP CONSTRAINT status_requests_cancelled_by_fk;
+DROP TABLE app.user_role_scope_items;
+DROP TABLE app.user_roles;
+DROP TYPE app.scope_kind;
+DROP TABLE app.role_permissions;
+DROP TABLE app.roles;
+DROP TABLE app.permissions;
+DROP TABLE app.user_sessions;
+DROP TABLE app.user_devices;
+DROP TABLE app.user_credentials;
+DROP TYPE app.credential_state;
+DROP TYPE app.credential_kind;
+DROP TABLE app.users;
+DROP TYPE app.user_state;
+DROP TYPE app.user_kind;

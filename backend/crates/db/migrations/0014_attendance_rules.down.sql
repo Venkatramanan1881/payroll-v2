@@ -1,0 +1,14 @@
+DROP TRIGGER policy_set_versions_freeze ON app.policy_set_versions;
+DROP FUNCTION app.freeze_approved_settings();
+DROP TABLE app.day_results;
+DROP TABLE app.waivers;
+ALTER TABLE app.employee_job_versions DROP CONSTRAINT job_versions_policy_set_fk;
+ALTER TABLE app.employee_job_versions DROP COLUMN policy_set_id;
+DROP TABLE app.policy_assignments;
+DROP TABLE app.policy_set_versions;
+DROP TABLE app.policy_sets;
+DROP TYPE app.day_status;
+DROP TYPE app.waiver_state;
+DROP TYPE app.waiver_kind;
+DROP TYPE app.assignment_state;
+DROP TYPE app.assignment_level;

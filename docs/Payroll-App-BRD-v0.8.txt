@@ -1,0 +1,1370 @@
+BUSINESS REQUIREMENTS DOCUMENT
+Payroll App: Modular Attendance, Leave and Payroll Platform
+Version: 0.8 (draft for review)
+Date: 15 November 2026
+Owner: Venkat
+Status: Draft, not yet approved
+Replaces: version 0.7
+
+Changes from 0.7 (pay rounding only; nothing else changed):
+- New fixed rule BR-15: how and where money is rounded.
+- TB-05 reworded to match BR-15.
+- Section 13.2: rates shown unrounded in calculation; P3 and P7 show their working; P12 notes that bank and cash always add up to net pay; new P17 shows a rounding tie.
+- Open questions added: Q17 (rounding mode), Q18 (bank/cash split rounding).
+
+
+======================================================================
+1. PURPOSE
+======================================================================
+
+This document defines a payroll application sold to many organisations in different sectors. Check-in and check-out punches are the only raw facts. Everything else is a layer of rules each organisation adds on top to decide how it pays its people.
+
+The application is not one fixed product. It has a common part that every client gets, and separate modules that the vendor switches on or off for each organisation. Payroll calculation is usually specific to each client, so the software is shaped to the client's requirement on top of a standard base.
+
+The application is delivered in three releases: version 1 for core workforce management, version 2 for loans, advances, payroll and groups, and version 3 for extended workforce capabilities (section 21).
+
+
+======================================================================
+2. OBJECTIVES
+======================================================================
+
+O1. One platform serves every sector and worker type. Attendance, leave and the other common parts are handled through settings; payroll calculation is tailored for each client by the vendor.
+O2. The vendor decides which modules each organisation gets. The organisation's HR decides how each rule inside those modules behaves.
+O3. Same punches plus same rules always gives the same pay, and every figure can be explained.
+O4. Nothing adds or cuts pay unless a configured rule or an approval says so.
+O5. A standard payroll base is shared by all clients, and client-specific calculation rules are added on top without affecting any other client.
+
+Proposed success measures (to confirm):
+- A new organisation is live on the common modules from a template with no code change; client-specific payroll rules are added without changing the common code.
+- At least 95% of employee-days are finalised with no manual action.
+- Every amount on a payslip can be traced to punches, rules and approvals.
+
+
+======================================================================
+3. TARGET CLIENTS AND WORKFORCE
+======================================================================
+
+Sectors: manufacturing, supermarkets, restaurants, bakeries and cafes, service industries.
+Workforce: blue collar and white collar; unskilled, semi-skilled and skilled; permanent, probation, casual and contract workers.
+Scale: hundreds of client organisations; up to about 2,000 employees per organisation across multiple branches.
+Punch methods: biometric device, face (device or selfie in the app), app check-in and check-out, web check-in and check-out. App and web punches capture location and can be geo-fenced.
+Platforms: web admin panel for all clients; Android and iOS employee app where the client's plan includes it. Workers without a smartphone use the device only.
+Languages: English, Tamil, then Hindi. Each user can change language.
+
+
+======================================================================
+4. PRODUCT STRUCTURE
+======================================================================
+
+4.1 MODULE MAP
+
+The release of each module is shown in brackets. Section 21 has the full plan.
+
+Platform (vendor only)
+V01 Vendor console [V1]
+
+Common (every client, always on)
+C01 Organisation setup: branches, departments, designations, categories [V1]
+C02 Employee master [V1]
+C03 User management, roles and access [V1]
+C04 Punch collection [V1]
+C05 Shifts and roster [V1]
+C06 Attendance rules: breaks, late, early, missed punch, day status, regularisation [V1]
+C07 Holidays and weekly offs [V1]
+C08 Leave: types, accrual, requests and approval, sandwich policy, uninformed absence [V1]
+C09 Permissions and on-duty [V1]
+C10 Advances and loans [V2]
+C11 Documents, assets, onboarding and offboarding [V3]
+C12 Pay period and lock [V1 for attendance periods; pay frequencies per payroll group in V2]
+C13 Reports [V1, extended with each release]
+C14 Notifications [V1, extended with each release]
+C15 Opening balances [V1; advances and loans in V2]
+C16 Dashboards [V1, extended with each release]
+
+Optional (switched on per organisation)
+M01 Overtime [V3; overtime hours are identified by attendance from V1]
+M02 Compensatory off [V1 for earning and balance; double pay on expiry in V2]
+M03 Payroll (standard base, client-specific rules, payroll groups, shift pay rules, payslips, accounting export) [V2]; daily allowance [V3]
+M04 Reimbursements [V2]
+M07 Projects, tasks and time tracking, feeding project cost, employee pay and client billing [V3]
+M09 Employee performance [V3]
+
+Not yet scheduled
+M05 Statutory (PF, ESI, professional tax, TDS)
+M06 Bonus (monthly and yearly)
+M08 Piece rate (task-based pay)
+
+4.2 MODULE CONTROL (MD)
+
+MD-01 Modules enabled for an organisation: set by the Vendor Admin only, according to the client's plan.
+MD-02 Plan: defines the modules, the employee limit and whether the Android and iOS app is included.
+MD-03 A disabled module is hidden from every menu, its rules are not evaluated and its data is kept.
+MD-04 Dependencies are enforced when switching: Reimbursement payout with salary, payslips and accounting export need Payroll; Statutory, Bonus, piece rate and project-based pay need Payroll.
+MD-05 Inside an enabled module, every rule group still has its own on/off switch for the organisation's HR.
+MD-06 When Payroll is off, the common part still produces the payroll input (payable days, deduction days, late and early minutes, overtime hours, advance and loan recoveries) as an export.
+
+4.3 VENDOR CONSOLE (V01)
+
+Requirements
+VC-R1 Create an organisation from a sector template, with its plan, modules, employee limit and first admin user.
+VC-R2 Change plan, modules and limits at any time, with a dated history.
+VC-R3 See usage per organisation: active employees against the limit, branches, devices online, last pay run, last sign-in.
+VC-R4 Suspend and reactivate an organisation. While suspended, punches are still stored, but users can only view and export.
+VC-R5 Record subscription details per organisation: plan, start date, renewal date, billing status. Invoicing itself is outside the app.
+VC-R6 Support access: the vendor can open an organisation's account to help, for a limited time, with every action logged and visible to the Organisation Admin.
+VC-R7 Maintain sector templates and the library of client-specific payroll rules (10.3.7), and see which organisation uses which.
+VC-R8 Health view across organisations: device sync failures, failed pay runs, periods waiting to be locked.
+VC-R9 Send announcements to chosen organisations.
+
+Settings (VC)
+VC-01 Employee limit reached: block new employees / allow and alert the vendor. Default allow and alert.
+VC-02 Renewal reminder to the vendor and the organisation: N days before. Default 15.
+VC-03 Support access needs the Organisation Admin's approval each time: on / off. Default on.
+VC-04 Suspension: manual only / automatic N days after the renewal date. Default manual only.
+VC-05 Vendor users and their roles: full admin / support / read-only.
+
+
+======================================================================
+5. USERS AND ROLES
+======================================================================
+
+- Vendor Admin: creates organisations, sets plans and modules, maintains templates, builds client-specific payroll rules. Cannot change an organisation's results.
+- Organisation Admin: manages users, roles and branches. Approves period unlock.
+- HR Manager: owns settings, policy sets, payroll groups, waivers and HR-level approvals. Can be limited to chosen branches. Responsible for device enrolment, opening balances and manual attendance when a device fails.
+- Payroll Officer: locks periods, runs payroll, releases payslips, records payments.
+- Manager (Approver): approves leave, permission, regularisation, overtime and advances for their team.
+- Supervisor: marks daily cash payouts, views team attendance.
+- Employee: punches, views own attendance, balances and payslips, raises requests.
+- Auditor: read-only access to results, settings history and the audit trail.
+Organisations can create further roles (see AC-01).
+
+
+======================================================================
+6. DEFINITIONS
+======================================================================
+
+Punch: one recorded check-in or check-out event.
+Session: a matched in and out pair.
+Attendance date: the working day a punch belongs to.
+Grace: minutes tolerated after shift start or before shift end.
+Geo-fence: a circle around a branch (centre point and radius) inside which an app or web punch is accepted.
+Late mark / early mark: a recorded instance of late arrival or early check-out.
+Permission: a short approved absence inside the working day, limited per month.
+On-duty: approved official work away from the workplace, counted as worked.
+Master branch: the branch an employee belongs to.
+Allowed branches: other branches where the employee may punch.
+Absconding: continuous uninformed absence beyond a set number of days.
+Client-specific rule: a pay calculation rule built by the vendor for one organisation.
+Regularisation: a request to correct attendance, approved by a manager or HR.
+Informed leave: leave with a request approved before the day, or approved afterwards.
+Uninformed absence: an absent day with no approved leave request.
+Sandwich policy: weekly offs or holidays that fall between leave or absent days are counted as leave or absence.
+LOP: loss of pay.
+Deduction days: LOP days plus any extra days cut by a rule (for example the second day of a double cut).
+Comp-off: a paid day off earned by working on a holiday or weekly off.
+Payroll group: a set of employees paid by the same rules, frequency and payment method.
+Monthly salary: the fixed monthly pay of an employee, before deductions.
+Daily allowance: a fixed amount earned for each day worked, paid in addition to the monthly salary and not part of CTC.
+Day divisor: the number of days used to turn a monthly salary into a per-day rate.
+Piece rate (task-based pay): pay per unit of output or completed task. Not yet scheduled.
+Advance: money given early and recovered in full from the next pay.
+Loan: money recovered in instalments over several pay periods.
+Policy set: a named bundle of settings assigned to a group of employees.
+Period lock: the point after which a pay period's attendance can no longer change.
+
+
+======================================================================
+7. CONFIGURATION PRINCIPLES
+======================================================================
+
+G1. Two levels of control. The vendor switches modules. HR switches rule groups inside them and sets every option.
+G2. Master switch. Every rule group has an on/off switch. When off, the rule is not evaluated and has no effect on status or pay.
+G3. Policy sets. Attendance settings are grouped into named policy sets, assignable at organisation, branch, department, category, shift or employee level. The most specific assignment wins.
+G4. Payroll groups. Pay settings are grouped into payroll groups that HR creates freely.
+G5. Effective dates. A version in use is never edited. A change creates a new version with a start date.
+G6. Defaults and templates. Every setting has a default. Starter templates are provided per sector: Factory, Supermarket, Restaurant and bakery, Office and services.
+G7. Exemptions. Any rule group can exempt chosen categories, departments, employee types, employees or dates.
+G8. Preview. For any setting that affects pay, HR sees a plain-language summary and can test it on last period's data before it goes live.
+G9. Settings history. Every change records who, when, old value, new value and reason.
+G10. Client-specific rules. Where settings are not enough for a client's pay calculation, the vendor adds a rule for that organisation only (10.3.7).
+
+All defaults in this document are proposals for review.
+
+
+======================================================================
+8. HOW PUNCHES BECOME PAY
+======================================================================
+
+Layer 1. Punches: in and out events from devices and the app.
+Layer 2. Schedule: shift, roster, weekly offs and holidays say what was expected.
+Layer 3. Attendance rules: breaks, late, early, missed punches and regularisation give a result for each day.
+Layer 4. Overlays: leave, permission, on-duty and comp-off change or explain the day.
+Layer 5. Period totals: payable days, deduction days, late and early minutes, overtime hours.
+Layer 6. Pay rules: the Payroll module turns totals into money (or the totals are exported if Payroll is off).
+Layer 7. Recoveries and payment: advances and loans are recovered, and net pay is paid by bank, cash or both.
+
+Each layer only reads the layers below it. A correction in any layer recalculates the layers above it while the period is open.
+
+
+======================================================================
+9. COMMON MODULES (EVERY CLIENT)
+======================================================================
+
+Modules in this section are in version 1 unless the heading says otherwise.
+
+
+9.1 ORGANISATION SETUP (C01)
+
+Requirements
+OR-R1 Create branches, each with address, time zone, geo-fence, holiday calendar and devices.
+OR-R2 Create departments, designations and employee categories (for example unskilled, semi-skilled, skilled, staff).
+OR-R3 Create employee types: permanent, probation, trainee, casual, contract.
+OR-R4 Create contractors, with the workers supplied by each.
+OR-R5 Every list can be extended by the organisation; nothing is hard-coded to one sector.
+
+Settings (OR)
+OR-01 Financial year and leave year: calendar year / April to March / custom. Default April to March.
+OR-02 Week starts on: any day. Default Monday.
+OR-03 Organisation languages offered: English / Tamil / Hindi, each on / off. Default English on.
+OR-04 Currency and number format. Default Indian rupee.
+
+
+9.2 EMPLOYEE MASTER (C02)
+
+Requirements
+EM-R1 Hold personal, contact and emergency details.
+EM-R2 Hold job details: employee code, master branch, allowed branches, department, designation, category, employee type, reporting manager, joining date, contractor if any.
+EM-R3 Hold attendance details: device enrolment ID, shift or roster, attendance policy set.
+EM-R4 Hold pay details: payroll group, wage type, salary or rate, bank details, bank and cash split. Fields for a module appear only when that module or option is enabled (for example the daily allowance amount).
+EM-R5 Track status: active, on probation, on notice, exited, with dates.
+EM-R6 Keep a dated history of every change to branch, department, shift, payroll group and pay.
+EM-R7 Bulk create and update by spreadsheet upload, with validation and an error report.
+EM-R8 Organisation-defined custom fields.
+EM-R9 Every employee has one master branch and may have allowed branches. Punches at the master and allowed branches are accepted, and attendance and pay follow the employee's own policy set and payroll group wherever they punch.
+EM-R10 Reports show days worked by branch.
+
+Settings (EM)
+EM-01 Employee code: automatic with a prefix per branch / entered manually. Default automatic.
+EM-02 Mandatory fields: chosen by the organisation from the full field list.
+EM-03 Employee can edit own contact details: on / off, with or without HR approval. Default on, with approval.
+EM-04 Probation length and confirmation reminder. Default 6 months.
+EM-05 Rejoining employee: new code / reuse old code. Default reuse.
+EM-06 Allowed branches per employee: master branch only / chosen branches / all branches. Default master branch only.
+EM-07 Punch at a branch that is not allowed: block / record and flag for approval. Default record and flag.
+EM-08 A day worked at another branch is costed to: the branch worked / the master branch. Default the branch worked.
+EM-09 Change of master branch: dated, with history; shift, policy set and payroll group are reviewed at the time of transfer.
+
+
+9.3 USER MANAGEMENT AND ACCESS (C03)
+
+Requirements
+UM-R1 Role-based access to every screen, report and action.
+UM-R2 Access can be limited by branch and department.
+UM-R3 Employees sign in with mobile number and one-time password; admin users with password and optional second step.
+UM-R4 Each user can choose their language.
+
+Settings (AC)
+AC-01 Role permissions: each role's view, edit and approve rights are configurable.
+AC-02 Approver for each request type: reporting manager / named person / department head / HR.
+AC-03 Delegation while an approver is away: on / off.
+AC-04 Who can change settings: HR Manager only / HR Manager with Organisation Admin approval. Default HR Manager only.
+AC-05 Employee can see: own punches, day status, counters, permission balance and the reason for any deduction. Each on / off.
+AC-06 Custom roles: on / off. Default on.
+AC-07 Access scope per user: all branches / chosen branches / chosen departments.
+AC-08 Second sign-in step for admin roles: on / off. Default on.
+
+
+9.4 PUNCH COLLECTION (C04)
+
+Requirements
+PC-R1 Connect eSSL devices by direct push in version 1. Other makes, and the vendor's own device, are added later without changing the rest of the system.
+PC-R2 Register each device against a branch and show whether it is online.
+PC-R3 Map each employee to their device enrolment ID.
+PC-R4 Accept face punches from a face device or from a selfie in the app.
+PC-R5 Accept app check-in and check-out with location, working without a network and syncing later.
+PC-R6 Store every punch unchanged with its source, device, time and location.
+PC-R7 Accept late and out-of-order punches and recalculate the affected days.
+PC-R8 The HR Manager is responsible for enrolling each employee's fingerprint or face and for mapping enrolment IDs. Each employee shows an enrolment status: not enrolled, enrolled, re-enrolment needed.
+PC-R9 When a device fails, the HR Manager records manual attendance for the affected date and branch on one screen, with the reason. These entries are marked manual and logged.
+PC-R10 The HR Manager is alerted when a device has been offline longer than a set time.
+PC-R11 Web check-in and check-out capture the browser's location at the moment of the punch, once the employee allows location in the browser.
+PC-R12 Geo-fencing applies to web punches in the same way as app punches: the punch location is compared with the fences of the employee's master and allowed branches. A punch inside the fence of a branch that is not allowed follows EM-07.
+PC-R13 Every app and web punch stores latitude, longitude, accuracy and distance from the nearest allowed fence. HR can see these on the punch record.
+PC-R14 HR sets each branch's fence by entering coordinates or picking the point on a map, and can test it from the branch before switching it on.
+PC-R15 Location is read only at the moment of a punch. The system does not track location between punches.
+
+Settings (PC)
+PC-01 Allowed punch sources, each on / off: biometric device, web, mobile app, kiosk, file or API import, entry by HR.
+PC-02 App punch requirements, each on / off: location, selfie, inside geo-fence.
+PC-03 Geo-fence per branch: centre point and radius; more than one fence per branch is allowed. Default radius 200 metres.
+PC-04 Punch outside the geo-fence (app and web): block / record and flag for approval / allow. Default record and flag.
+PC-05 Web punch restricted to listed IP addresses: on / off. Default off.
+PC-06 Punch on a weekly off, holiday or with no shift assigned: allow / allow and flag / block. Default allow and flag.
+PC-07 Late-sync flag: flag punches that arrive more than N days after the punch time. Default 3 days.
+PC-08 Device clock mismatch tolerance. Default 5 minutes.
+PC-09 Work-from-home punch: only on approved WFH days / always / never. Default only on approved days.
+PC-10 Device offline alert after N minutes. Default 30.
+PC-11 Manual attendance during a device failure: HR Manager only / HR Manager can delegate to a Supervisor. Default HR Manager only.
+PC-12 Web punch requirements, each on / off: location, inside geo-fence. Default both on.
+PC-13 Location not available on web (the employee refuses permission or the browser cannot provide it): block the punch / record and flag for approval. Default block.
+PC-14 Location accuracy (app and web): a reading less accurate than N metres is accepted / flagged / blocked. Default 100 metres, flagged.
+PC-15 When web location and the IP restriction (PC-05) are both on: both must pass / either may pass. Default either may pass.
+PC-16 Fences that apply to an employee: master branch only / master and allowed branches. Default master and allowed branches.
+PC-17 Geo-fence on approved on-duty and work-from-home days: not applied, location still captured / applied. Default not applied.
+
+
+9.5 SHIFTS AND ROSTER (C05)
+
+Requirements
+SH-R1 Support fixed, flexible, flexible with core hours, break (split) shifts, night shifts and open shifts.
+SH-R2 Build rosters by week or month per employee, team or branch, by screen or spreadsheet upload.
+SH-R3 Copy a roster forward and rotate shifts on a pattern.
+SH-R4 Show the roster to employees in the app.
+
+Settings (SH)
+SH-01 Shift type: fixed / flexible / flexible with core hours / roster / split / open (hours only, no set times). Default fixed.
+SH-02 Shift start and end times. Default 09:00 to 18:00.
+SH-03 Required hours: per day, or per week for weekly-hours staff. Default 8 per day.
+SH-04 Core hours start and end (flexible with core hours).
+SH-05 Flexible band: earliest allowed check-in and latest allowed check-out.
+SH-06 Night shift attendance date: shift start date / shift end date. Default start date.
+SH-07 Shift window: hours before start and after end. Default 3 before, 6 after.
+SH-08 Auto-detect shift from first punch (staff without a roster): on / off. Default off.
+SH-09 Weekly offs: fixed days / alternating (for example 2nd and 4th Saturday) / from roster.
+SH-10 Holiday calendar: one per location.
+SH-11 Half-day split point: middle of shift / a fixed time. Default middle of shift.
+SH-12 Shift change and swap requests: on / off, with approver. Default off.
+
+
+9.6 ATTENDANCE RULES (C06)
+
+Daily process for each employee and date:
+1. Resolve the policy set in force on that date.
+2. Assign punches to the attendance date using the shift window.
+3. Clean: drop repeat punches, merge very short gaps.
+4. Read punches into sessions using the configured mode.
+5. Validate. Apply the missed-punch rule or flag the day.
+6. Calculate gross hours, breaks, net hours, late minutes, early minutes.
+7. Apply overlays: leave, holiday, weekly off, on-duty, permission.
+8. Set the day status. Send exceptions to regularisation and recalculate on approval.
+
+Settings: punch reading (PR)
+PR-01 Reading mode: first-in/last-out / paired / direction-tagged. Default paired.
+PR-02 Repeat-punch window: punches closer than this are one punch. Default 60 seconds.
+PR-03 Which repeat punch is kept: first / last. Default first.
+PR-04 Minimum gap: an out-then-in gap shorter than this is continuous work. Default 5 minutes.
+PR-05 Maximum session length before it is treated as a missed punch. Default 16 hours.
+PR-06 Maximum punches per day before the day is flagged. Default 12.
+
+Settings: breaks (BK)
+BK-01 Break type: none / fixed auto-deduct / window / flexible / flexible with cap. Default fixed auto-deduct.
+BK-02 Break is paid / unpaid. Default unpaid.
+BK-03 Break duration. Default 60 minutes.
+BK-04 Break window start and end (window type).
+BK-05 Cap on total break minutes per day, and on number of breaks per day.
+BK-06 Excess break time: deduct from hours / count as early-check-out minutes / use permission balance / flag only. Default deduct from hours.
+BK-07 Break taken outside the window: deduct / flag / both. Default flag.
+BK-08 Auto-deduct when no break is punched: on / off, X minutes after Y hours worked. Default off.
+BK-09 Several named breaks (lunch, tea), each with its own rule: on / off. Default off.
+
+Settings: late arrival (LA)
+LA-01 Late tracking: on / off. Default on.
+LA-02 Late minutes measured from: shift start / end of grace. Default shift start.
+LA-03 Grace period: 0 to 120 minutes. Default 10.
+LA-04 Grace uses per period: unlimited / N times. Default unlimited.
+LA-05 Late slabs: up to 5 ranges of late minutes, each with one action. Actions: no action / late mark / deduct actual minutes / quarter day / half day / full day / hold check-in until the manager approves. Default: 11 to 120 minutes = late mark; above 120 = half day.
+LA-06 Count-based penalty: on / off. Default off.
+LA-07 Penalty-free late marks per period. Default 0.
+LA-08 Penalty trigger: every Nth late mark after the free ones. Default every 3rd.
+LA-09 Penalty size: quarter day / half day / full day / fixed amount. Default half day.
+LA-10 Minutes-based penalty: on / off. Default off.
+LA-11 Minutes rule: when total late minutes in the period pass X, either deduct the actual excess minutes, or deduct a quarter or half day for every Y minutes. Default X = 60, deduct actual excess.
+LA-12 Penalty recovery order: permission balance / chosen leave types in order / loss of pay / fixed fine / none (report only). Default casual leave, then loss of pay.
+LA-13 Compensation by working extra: on / off, with a maximum number of minutes that can be made up. Default off, 60 minutes.
+LA-14 Compensation window: same day / same week. Default same day.
+LA-15 Convert late arrival to a permission: off / suggest to the employee / automatic. Default suggest.
+LA-16 Late regularisation: on / off, with an editable reason list. Default on.
+LA-17 Bulk waiver by HR for a date and location or shift (rain, strike, transport failure): on / off. Default on.
+LA-18 Counters reset every: calendar month / payroll period / quarter / year. Default payroll period.
+LA-19 Escalation alerts: to the manager after N late marks, to HR after M: on / off. Default on, 3 and 5.
+LA-20 Grace applies to an adjusted start time (after half-day leave or a permission): yes / no. Default yes.
+LA-21 Flexible shifts: late not applicable / measured from core-hours start / measured from latest allowed check-in. Default core-hours start where core hours exist, otherwise not applicable.
+LA-22 Exemptions: by category, department, employee type, employee or date.
+LA-23 A day already cut to half or full day by a slab also counts as a late mark: yes / no. Default no.
+
+Settings: early check-out (EC)
+EC-01 Early check-out tracking: on / off. Default on.
+EC-02 Grace before shift end: 0 to 120 minutes. Default 5.
+EC-03 Grace uses per period: unlimited / N times. Default unlimited.
+EC-04 Early slabs: up to 5 ranges with the same actions as LA-05 (except hold check-in). Default: 6 to 120 minutes = early mark; above 120 = half day.
+EC-05 Count-based penalty: on / off. Default off.
+EC-06 Penalty-free early marks per period. Default 0.
+EC-07 Penalty trigger: every Nth early mark after the free ones. Default every 3rd.
+EC-08 Penalty size: quarter day / half day / full day / fixed amount. Default half day.
+EC-09 Minutes-based penalty: on / off, with the same choices as LA-11. Default off.
+EC-10 Counter: separate from late marks / one combined counter for late and early. Default separate.
+EC-11 Penalty recovery order: same choices as LA-12, set independently.
+EC-12 Compensation by approved early arrival the same day: on / off. Default off.
+EC-13 Convert early check-out to a permission: off / suggest / automatic. Default suggest.
+EC-14 Prior approval needed to leave early: on / off. If on, unapproved early exit is: early mark / half day / flag for HR. Default off.
+EC-15 Hours-met override: no early mark when required net hours are already done. Default on for flexible shifts, off for fixed.
+EC-16 Early check-out regularisation and bulk waiver by HR: each on / off. Default on.
+EC-17 Counter reset, escalation alerts, grace on adjusted end time, flexible-shift handling and exemptions: same choices as LA-18 to LA-22, set independently.
+
+Settings: early arrival (EA)
+EA-01 Early check-in counts from: shift start / punch time / punch time only when approved. Default shift start.
+EA-02 Maximum early minutes that can count. Default 60.
+
+Settings: missed punches (MP)
+MP-01 Odd number of punches: flag for regularisation / auto-close at shift end / count completed pairs only / half day / absent. Default flag for regularisation.
+MP-02 Single punch: same choices. Default flag for regularisation.
+MP-03 Still unresolved at the cut-off: count completed pairs only (absent if none) / half day / absent. Default count completed pairs only.
+MP-04 Reminders to the employee: at shift end plus X minutes, and next morning: on / off. Default on, 30 minutes.
+MP-05 Auto check-out: off / at shift end / at a fixed time. Auto check-out always leaves the day flagged. Default off.
+
+Settings: day status (DS)
+DS-01 Status basis:
+  a) Shift-based: present if there is a valid in and out; late and early rules decide any deduction.
+  b) Hours-based: status comes only from net hours. Late and early events are reported but carry no separate penalty.
+  c) Hybrid: shift-based with a floor; too few net hours still reduces the day.
+  Default: shift-based for fixed, roster and split shifts; hours-based for flexible and open.
+DS-02 Minimum net hours for a full day (hours-based and hybrid). Default: required hours for hours-based; 75% of required hours for hybrid.
+DS-03 Minimum net hours for a half day. Default 50% of required hours.
+DS-04 Shortfall tolerance: a shortfall smaller than this is ignored. Default 15 minutes.
+DS-05 Shortfall below the full-day minimum (hours-based): half day / deduct actual minutes / make up within the week. Default half day.
+DS-06 Quarter-day statuses: on / off. Default off.
+DS-07 Below the half-day minimum: absent / pay in proportion to hours. Default absent.
+DS-08 Sandwich rule: set in Leave (LM-16 to LM-20).
+DS-09 Present by default for chosen employees (no punches needed): on / off. Default off.
+DS-10 Absent with no leave applied: loss of pay / auto-debit leave in a chosen order / hold as pending for N days. Default pending for 3 days, then loss of pay.
+
+Settings: rounding (RD)
+RD-01 Rounding: on / off. Default off.
+RD-02 Unit: 5 / 6 / 10 / 15 / 30 minutes. Default 15.
+RD-03 Direction: nearest / down / up. Default nearest.
+RD-04 Applied to: net hours / overtime / both. Default both.
+Rounding is applied to totals only, never to individual punches, and never before late or early minutes are calculated.
+
+Settings: regularisation (RG)
+RG-01 Regularisation: on / off. Default on.
+RG-02 Request types, each on / off: missed punch, late arrival, early check-out, wrong punch, whole day (forgot card, device down).
+RG-03 Limit per period: overall and per type. Default 3 overall.
+RG-04 Request window: within N days of the date and before lock. Default 7 days.
+RG-05 Approval levels: one (manager) / two (manager then HR). Default one.
+RG-06 Types that are auto-approved (for example a device fault confirmed by HR).
+RG-07 Approver does not act within N days: escalate / auto-approve / auto-reject. Default escalate after 2 days.
+RG-08 Request over the limit: block / HR approval only. Default HR approval only.
+RG-09 Reason mandatory; attachment optional or mandatory per type.
+RG-10 Direct correction by HR with a reason: on / off. Default on.
+RG-11 Bulk regularisation by HR for a device outage: on / off. Default on.
+
+Note: the late and early settings above decide marks, minutes and day-level cuts. Turning late and early minutes into a money deduction is a pay rule (see 10.3, PD).
+
+
+9.7 HOLIDAYS AND WEEKLY OFFS (C07)
+
+Requirements
+HD-R1 Holiday calendars per branch, with national, festival and optional holidays.
+HD-R2 Weekly offs fixed, alternating or from the roster (SH-09).
+HD-R3 Optional holidays: employee picks up to N from a list.
+
+Settings (HD)
+HD-01 Optional holidays per year: number allowed. Default 0.
+HD-02 Holiday on a weekly off: no change / move to next working day. Default no change.
+HD-03 Paid holiday needs presence on the working day before and after: on / off. Default off.
+HD-04 Daily-wage and hourly workers are paid for holidays: yes / no. Default no.
+HD-05 Daily-wage and hourly workers are paid for weekly offs: yes / no. Default no.
+
+
+9.8 LEAVE (C08)
+
+Requirements
+LM-R1 Organisation-defined leave types, paid or unpaid.
+LM-R2 Leave credited by grant or accrual, with carry forward, lapse and limits.
+LM-R3 Employees apply for full-day or half-day leave from web or app; approvers act singly or in bulk.
+LM-R4 Balances are visible to the employee and update as soon as a request is approved or cancelled.
+LM-R5 Sandwich policy applied automatically where enabled.
+LM-R6 Absent days are classified as informed leave, unpaid leave or uninformed absence.
+LM-R7 Year-end processing: carry forward, lapse and, where enabled, encashment.
+LM-R8 Comp-off balances appear alongside leave when the Comp-off module is on.
+LM-R9 Where enabled, continuous uninformed absence flags the employee as absconding and holds pay until HR decides.
+
+Settings: leave types and accrual (LM)
+LM-01 Leave types: name, paid / unpaid, who is eligible (category, employee type, payroll group, after probation).
+LM-02 Credit method per type: fixed grant at start of year / monthly accrual / quarterly accrual / earned by days worked (for example 1 day per 20 days worked). Default monthly accrual.
+LM-03 Accrual is credited at: start / end of the period. Default end.
+LM-04 Joiners and leavers mid-period: pro-rated / full / none. Default pro-rated.
+LM-05 Maximum balance per type. Default no cap.
+LM-06 Year end: carry forward up to N days / lapse / encash. Default lapse.
+LM-07 Negative balance allowed: no / up to N days. Default no.
+
+Settings: requests and approval (LM)
+LM-08 Half-day leave: on / off per type. Default on.
+LM-09 Minimum notice in days per type. Default 0.
+LM-10 Maximum consecutive days per request. Default no cap.
+LM-11 Request after the event: allowed within N days / not allowed. Default within 3 days.
+LM-12 Supporting document required when leave is longer than N days: on / off. Default off.
+LM-13 Approval: manager / manager then HR; if not acted on within N days: escalate / auto-approve / auto-reject. Default manager, escalate after 2 days.
+LM-14 Combining two leave types in one stretch: allow / block. Default allow.
+LM-15 Leave during notice period: allow / block / extends the notice period. Default allow.
+
+Settings: sandwich policy (LM)
+LM-16 Sandwich policy: on / off. Default off.
+LM-17 Applies when the days on both sides are: leave / uninformed absence / either. Default either.
+LM-18 Also applies when leave is on one side only (the day before or the day after): on / off. Default off.
+LM-19 Leave types covered. Default all.
+LM-20 Sandwiched days are counted as: the same leave type / unpaid. Default same leave type.
+
+Settings: uninformed and excess absence (LM)
+LM-21 Uninformed absence rule: on / off. Default off. A sector template can have it switched on.
+LM-22 Total days cut for each uninformed absent day, including the day itself. Default 2.
+LM-23 A leave request approved afterwards cancels the extra cut: yes / no. Default yes.
+LM-24 Excess absence rule: on / off. Default off. It has two parts, informed and uninformed, each with its own switch, count, threshold and deduction.
+LM-25 Informed part: on / off. Counts approved leave days in the month; HR chooses which leave types count (default all leave types, comp-off excluded). More than X days deducts Y days' salary, as one flat cut or for each day beyond X. HR sets X and Y, in up to 3 slabs. Default off; X = 3, Y = 1 for each day beyond X.
+LM-26 Uninformed part: on / off. Counts uninformed absent days in the month. Same choices as LM-25, set separately. Default off; X = 3, Y = 1 for each day beyond X.
+LM-27 Y is on top of the normal pay effect of the days themselves. The two parts are counted, deducted and reported separately, and a day counts in one part only. A day whose leave is approved afterwards moves from the uninformed count to the informed count. An uninformed day is never cut under both LM-21 and LM-26; the larger total applies. Fixed.
+LM-28 Absent days not covered by leave: loss of pay / auto-debit leave types in a chosen order. Default loss of pay.
+LM-29 Absconding rule: on / off. Default off.
+LM-30 Trigger: N continuous uninformed absent days. Default 7.
+LM-31 On trigger: flag the employee and alert HR; hold pay: on / off. Default hold pay on.
+LM-32 HR then either returns the employee to active (hold released) or starts offboarding.
+
+Settings: leave and attendance (LV)
+LV-01 Punches on a day of approved full-day leave: ignore / flag for leave cancellation / auto-cancel leave when full hours are worked. Default flag.
+LV-02 On-duty: set in 9.9 (OD).
+LV-03 Work from home: on / off; attendance by web punch / present by default. Default on, web punch.
+LV-04 Leave debit order for absences and penalties: a list of leave types in order.
+
+
+9.9 PERMISSIONS AND ON-DUTY (C09)
+
+Requirements
+PM-R1 Employees apply for a permission from web or app; approvers act on it.
+PM-R2 Limits, eligibility and timing are enforced at the time of application.
+PM-R3 The permission is matched against punches where required, and over-stay is handled as configured.
+PM-R4 Balance and usage are visible to the employee.
+PM-R5 Employees apply for on-duty (official work away from the workplace) from the same screen as permissions, for some hours, a half day, a full day or several days.
+PM-R6 Approved on-duty time counts as worked, with no late or early mark for the time it covers.
+PM-R7 Where required, the employee checks in from the app at the on-duty place with location.
+
+Settings: permissions (PM)
+PM-01 Permissions: on / off. Default on.
+PM-02 Permission types: several named types, each with its own rules. Default Personal only. Official work is handled as on-duty (OD).
+PM-03 Duration unit: any minutes / fixed blocks of 30 minutes or 1 hour. Default 30-minute blocks.
+PM-04 Minimum and maximum length of one permission. Default 30 and 120 minutes.
+PM-05 Limit basis: by count / by total hours / both, whichever is reached first. Default by count.
+PM-06 Limit by count per period. Default 2.
+PM-07 Limit by total hours per period. Default 4 hours.
+PM-08 Limit period: week / calendar month / payroll period / quarter / year. Default calendar month.
+PM-09 Maximum permissions per day and per week. Default 1 per day, no weekly cap.
+PM-10 Allowed position: start of shift / end of shift / middle of shift / any. Default any.
+PM-11 Permission is paid / unpaid. Default paid.
+PM-12 Permission time counts as worked hours for day status: yes / no. Default yes.
+PM-13 Permission time counts toward overtime: yes / no. Default no.
+PM-14 When it can be applied: before only / before or on the day / after the event within N days. Default before or after within 2 days.
+PM-15 Minimum notice in hours. Default 0.
+PM-16 Approval: auto-approve within the limit / manager / manager then HR. Default manager.
+PM-17 Approver does not act within N hours: escalate / auto-approve / auto-reject. Default escalate after 24 hours.
+PM-18 Request over the limit: block / allow with HR approval as unpaid minutes / convert to half-day leave / debit leave by the hour. Default block.
+PM-19 Over-stay (absent longer than approved): excess counts as late or early minutes / whole absence becomes half-day leave / use a second permission / flag only. Default excess counts as late or early minutes.
+PM-20 Same day as half-day leave: allow / block. Default block.
+PM-21 On a working day next to leave, a holiday or a weekly off: allow / block. Default allow.
+PM-22 Maximum consecutive working days with a permission. Default no cap.
+PM-23 Unused permissions carry forward: no / yes up to N. Default no.
+PM-24 Mid-period joiners and leavers: full limit / pro-rated. Default full.
+PM-25 Eligibility: by employee type, category, probation status, notice period. Default all confirmed and probation staff.
+PM-26 Blackout dates on which permissions cannot be taken: on / off. Default off.
+PM-27 Punches required for the permission: yes (out and in punches are checked against the approval) / no (approval alone is enough). Default yes for middle of shift, no for start and end.
+PM-28 Reason is mandatory, from an editable list; attachment optional. Default mandatory.
+PM-29 Cancel or change: by the employee before the start time; by HR afterwards. Default as stated.
+PM-30 A late arrival or early check-out converted under LA-15 or EC-13 uses one permission from the limit: yes / no. Default yes.
+
+Settings: on-duty (OD)
+OD-01 On-duty: on / off. Default on.
+OD-02 Duration allowed: hours / half day / full day / several days. Each on / off. Default all on.
+OD-03 Limit per month: none / by count / by hours. Default none.
+OD-04 When it can be applied: before only / before or after the event within N days. Default before or after within 2 days.
+OD-05 Approval: manager / manager then HR; if not acted on: escalate / auto-approve / auto-reject. Default manager, escalate after 24 hours.
+OD-06 Purpose and place mandatory; proof attachment optional or mandatory. Default purpose and place mandatory, proof optional.
+OD-07 Punches during on-duty: not required / app check-in at the place with location / start and end punches. Default not required.
+OD-08 On-duty time counts toward overtime: yes / no. Default no.
+OD-09 Daily allowance is earned on an on-duty day: yes / no. Default yes.
+OD-10 On-duty on a holiday or weekly off earns comp-off or overtime as normal work does: yes / no. Default yes.
+OD-11 Eligibility: by category, department, employee type. Default all.
+OD-12 On-duty never uses the permission limit. Fixed.
+
+
+9.10 ADVANCES AND LOANS (C10) - VERSION 2
+
+Requirements
+AL-R1 An employee requests an advance or loan, or HR records one directly.
+AL-R2 Limits and eligibility are checked, then the request goes for approval.
+AL-R3 An advance is recovered in full from the next pay. A loan is recovered in equal instalments. No interest.
+AL-R4 If the pay cannot cover the recovery, what is available is recovered and the balance carries forward.
+AL-R5 HR can pause or reschedule an instalment, or record an early repayment, with a reason.
+AL-R6 Each employee has a ledger: amount given, recoveries, balance.
+AL-R7 Open balances are shown at offboarding and recovered in the final settlement.
+AL-R8 With Payroll off, the recovery due each period is included in the payroll input export.
+
+Settings (AL)
+AL-01 Advances: on / off. Loans: on / off. Default both on.
+AL-02 Maximum advance: a percentage of monthly salary or a fixed amount. Default 50%.
+AL-03 Maximum loan: a multiple of monthly salary or a fixed amount. Default 3 months' salary.
+AL-04 Maximum open advances and open loans per employee. Default 1 each.
+AL-05 Eligibility: minimum service, employee types, payroll groups. Default 3 months' service.
+AL-06 Approval: manager / HR / manager then HR / by amount slab. Default HR.
+AL-07 Maximum loan instalments. Default 12.
+AL-08 Recovery cap per pay: a percentage of that period's net pay. Default 50%.
+AL-09 For daily, weekly and bi-weekly pay: recover from every pay / from the last pay of the month. Default every pay.
+AL-10 Employee can request from the app: on / off. Default on.
+AL-11 Paid out by: bank / cash, recorded with date and reference.
+
+
+9.11 DOCUMENTS, ASSETS, ONBOARDING AND OFFBOARDING (C11) - VERSION 3
+
+Requirements
+DC-R1 Organisation-defined document types (identity proof, address proof, bank proof, certificates, signed letters).
+DC-R2 Upload by the employee or HR; HR verifies; each document has a status and an optional expiry date.
+DC-R3 Onboarding checklist templates per employee type: tasks, owner and due date. Progress is tracked per new joiner.
+DC-R4 Offboarding record: reason, resignation date, notice period, last working day.
+DC-R5 Offboarding checklist: handover, asset return, clearances, open advances and loans, leave and comp-off balance.
+DC-R6 Completing offboarding triggers the final settlement in Payroll where that module is on.
+DC-R7 Letters from templates (offer, appointment, relieving, experience), filled from the employee master.
+DC-R8 Access to documents is restricted by role, and every view and download is logged.
+DC-R9 Asset checklists: HR builds a checklist like a form (items such as uniform, ID card, tools, phone, each with quantity, value and condition) and can edit it at any time.
+DC-R10 Issuing: HR fills the checklist for an employee at joining or later, and the employee acknowledges what was received.
+DC-R11 Returning: at offboarding the same checklist is completed item by item as returned, damaged or lost. The value of unreturned items can be recovered in the final settlement.
+DC-R12 An asset register shows what each employee holds.
+
+Settings (DC)
+DC-01 Document types: name, mandatory or optional per employee type, has expiry or not.
+DC-02 Employee upload from the app: on / off. Default on.
+DC-03 Employee becomes active only when mandatory documents are verified: on / off. Default off.
+DC-04 Expiry reminder: N days before expiry, to the employee and HR. Default 30.
+DC-05 Notice period per category and employee type. Default 30 days.
+DC-06 Allowed file types and maximum size. Default PDF and images, 5 MB.
+DC-07 Documents kept after exit for: N years. Default to be confirmed against legal requirements.
+DC-08 Asset checklist templates: per employee type, category or department.
+DC-09 Checklist item fields: name, quantity, value, condition, serial number, remarks. Each on / off, plus custom fields.
+DC-10 Employee acknowledgement of issued items: none / signature on a printout / confirm in the app. Default confirm in the app.
+DC-11 Unreturned or damaged items: recover the value in the final settlement / flag only. Default flag only.
+
+
+9.12 PAY PERIOD AND LOCK (C12) - VERSION 1 FOR ATTENDANCE PERIODS, PAY FREQUENCIES IN VERSION 2
+
+Requirements
+PL-R1 Pay periods are generated for each frequency in use: daily, weekly, bi-weekly, monthly.
+PL-R2 A pre-lock checklist shows pending requests, flagged days and unresolved missed punches.
+PL-R3 Locking freezes that period's attendance for the employees in it.
+PL-R4 A correction after lock posts only the difference to the next open period, tagged with the original date.
+
+Settings (PL)
+PL-01 Pay period: daily / weekly / bi-weekly / monthly (calendar month or a custom cycle, for example 26th to 25th). Set per payroll group. Default monthly, calendar month.
+PL-02 Attendance cut-off date within the period.
+PL-03 Days after the cut-off: assumed present and corrected next period / held until actuals arrive. Default assumed present.
+PL-04 Lock: manual by the Payroll Officer / automatic on a date. Default manual.
+PL-05 Pending items at lock: block the lock / allow, treating pending days as absent / allow, treating them as present and correcting next period. Default block.
+PL-06 Unlock: never / with Organisation Admin approval and a reason. Default never.
+PL-07 How many past periods can receive corrections as adjustments. Default 3.
+
+
+9.13 REPORTS (C13)
+
+See section 14.
+
+
+9.14 NOTIFICATIONS (C14)
+
+Each event can be switched on or off per channel (in-app, email, SMS or WhatsApp) and per recipient.
+NT-01 Missed punch reminder to the employee
+NT-02 Late mark or early mark recorded
+NT-03 Late or early count nearing a penalty
+NT-04 Permission balance used or exhausted
+NT-05 Request submitted, approved, rejected or escalated
+NT-06 Approvals pending with the manager (daily digest)
+NT-07 Penalty applied at period end
+NT-08 Punch flagged (outside geo-fence, late sync, clock mismatch)
+NT-09 Pre-lock checklist and lock reminder to payroll
+NT-10 Adjustment posted to the next period
+NT-11 Leave balance low or leave about to lapse
+NT-12 Advance or loan approved, recovered or closed
+NT-13 Document missing or expiring
+NT-14 Payslip released
+
+
+9.15 OPENING BALANCES (C15)
+
+Requirements
+OB-R1 A menu option and screen where HR enters opening balances when an organisation, branch or employee starts on the system part-way through a year.
+OB-R2 Balances covered: leave per type, comp-off, permissions used this month, open advances, open loans with remaining instalments, late and early counters for the current period.
+OB-R3 Entry on screen per employee, or by spreadsheet upload with validation and an error report.
+OB-R4 Each balance has an as-of date; calculations start from that date.
+OB-R5 Opening balances are confirmed once, then locked. Later changes need a reason and are logged.
+
+Settings (OB)
+OB-01 Who can enter and confirm: HR Manager / HR Manager with Organisation Admin approval. Default HR Manager.
+OB-02 Change after confirmation: not allowed / allowed with a reason. Default allowed with a reason.
+
+
+9.16 DASHBOARDS (C16)
+
+Requirements
+DB-R1 Each role lands on its own dashboard after signing in.
+DB-R2 Vendor: organisations by plan and status, employees against limits, renewals due, device and pay run failures.
+DB-R3 Organisation Admin and HR Manager: today's present, absent, late and on leave by branch; missed punches; pending approvals; devices offline; documents expiring; joiners and leavers this month.
+DB-R4 Payroll Officer: periods to lock, pre-lock issues, pay runs in progress, payments pending by bank and cash, advances and loans outstanding.
+DB-R5 Manager: team attendance today, pending approvals, team leave calendar, late and absence trends.
+DB-R6 Supervisor: who is in now, daily cash payouts due, roster for today and tomorrow.
+DB-R7 Employee: today's punch status, this month's attendance, leave and permission balance, pending requests, latest payslip.
+DB-R8 Dashboards respect each user's access scope and hide anything from a disabled module.
+
+Settings (DB)
+DB-01 Widgets shown per role: chosen by the Organisation Admin from the list for that role.
+DB-02 Default branch and period filters per user.
+
+
+======================================================================
+10. OPTIONAL MODULES
+======================================================================
+
+
+10.1 OVERTIME (M01) - VERSION 3
+
+Overtime hours are identified by attendance from version 1. Approval, caps and overtime pay arrive with this module in version 3.
+
+Requirements
+OT-R1 Calculate overtime for each day from the configured basis.
+OT-R2 Keep computed and approved overtime separately; only approved overtime is paid.
+OT-R3 Approvers act on overtime singly or in bulk.
+
+Settings (OT)
+OT-01 Overtime: on / off. Default off.
+OT-02 Basis: after shift end / beyond daily required hours / beyond weekly hours. Default after shift end.
+OT-03 Minimum minutes before any overtime counts. Default 30.
+OT-04 Caps per day, week and period.
+OT-05 Approval: before the work / after the work / auto-approve up to N minutes. Default after the work, by manager.
+OT-06 Overtime rounding: unit and direction. Default down to 30 minutes.
+OT-07 Time before shift start counts as overtime: yes / no. Default no.
+OT-08 Outcome: pay at a multiplier / comp-off / employee chooses. Separate multipliers for working day, weekly off and holiday. Default pay; multipliers set by the organisation.
+OT-09 Eligibility by category and employee type.
+OT-10 Late minutes on the same day are netted off against overtime: on / off. Default off.
+The system always stores computed overtime and approved overtime separately. Only approved overtime goes to payroll.
+OT-11 Overtime pay rate: derived from salary (per-day rate divided by shift hours, times the multiplier) / a fixed hourly rate per employee or category. Default derived.
+
+
+10.2 COMPENSATORY OFF (M02) - VERSION 1, DOUBLE PAY IN VERSION 2
+
+Requirements
+CO-R1 Work on a holiday or weekly off earns a comp-off after approval.
+CO-R2 The comp-off appears as a balance and is taken like leave.
+CO-R3 If a comp-off is not taken before it expires, one extra day's wage is paid automatically in the period of expiry, so the worked day is paid double in total.
+CO-R4 Where the organisation allows, the employee chooses on the day between pay and comp-off.
+
+Settings (HW)
+HW-01 Work on a holiday or weekly off: ignore / overtime / comp-off / employee chooses. Default comp-off.
+HW-02 Approval required before credit: on / off. Default on.
+HW-03 Prior approval required to work on such a day: on / off. Default off.
+HW-04 Hours needed for half-day and full-day comp-off. Default 4 and 8.
+HW-05 Comp-off expiry. Default 60 days.
+HW-06 On expiry: lapse / pay one extra day's wage (double pay for the worked day). Default pay one extra day's wage.
+
+
+10.3 PAYROLL (M03) - VERSION 2
+
+10.3.1 Standard base
+
+Every client starts from the same base: employees are placed in payroll groups; each group has a pay frequency and pay rules; each pay run takes the locked period totals and produces earnings, deductions, net pay and a payment split. Client-specific needs are met first by settings and components, and beyond that by client-specific rules built by the vendor (10.3.7).
+
+Pay run steps
+1. Lock attendance for the group's period.
+2. Pull inputs: payable days or hours, deduction days, late and early minutes, approved overtime, extra shifts, comp-off payouts, approved reimbursements, advance and loan recoveries, adjustments from earlier periods.
+3. Calculate earnings, deductions and net pay.
+4. Review: exceptions such as net pay below zero, missing bank details, employees on hold.
+5. Approve the run.
+6. Release payslips and produce the bank list and the cash list.
+7. Record payments and close the run.
+A correction after closing goes into the next run as an adjustment.
+
+Requirements
+PY-R1 Wage types: monthly salary, daily wage, hourly wage. Piece rate follows in a later release.
+PY-R2 Pay frequencies: daily, weekly, bi-weekly, monthly.
+PY-R3 Organisation-defined earning and deduction components, each fixed, a percentage of another component, or entered per run.
+PY-R4 A pay master per employee: payroll group, wage type, salary or rate, components, daily allowance amount where enabled, bank and cash split.
+PY-R5 Salary revisions with an effective date, and arrears where the date is in the past.
+PY-R6 One payslip per employee per run showing attendance summary, earnings, deductions with reasons, net pay, and the bank and cash portions.
+PY-R7 Employees download payslips from web and app in their language.
+PY-R8 A bank list for transfer and a cash list for payout, with paid and unpaid status.
+PY-R9 Hold and release an employee's pay for a run, with a reason.
+PY-R10 Final settlement on exit: pay due, comp-off payout, leave encashment where enabled, recovery of advances and loans, notice shortfall.
+PY-R11 Net pay never goes below zero. Deductions are applied in a set order; unrecovered advances and loans carry forward.
+
+How pay is worked out
+- Per-day rate = monthly salary divided by the day divisor (PY-05).
+- Per-minute rate = per-day rate divided by shift hours, divided by 60.
+- Monthly salary: salary minus deduction days times the per-day rate.
+- Daily wage: rate times payable days. Hourly wage: rate times payable hours.
+- Net pay = earnings minus deductions; then split into bank and cash.
+
+Settings: payroll general (PY)
+PY-01 Wage types offered, each on / off: monthly / daily / hourly. Default monthly and daily on.
+PY-02 Earning components: name, type (fixed / percentage / per run), part of CTC or not, affected by deduction days or not.
+PY-03 Deduction components: name, type, recovery order.
+PY-04 Deduction order when pay is short. Default: attendance deductions, then advances, then loans, then others.
+PY-05 Day divisor: 26 / 30 / calendar days in the month / working days in the month. Default 26.
+PY-06 Net pay rounding: none / nearest rupee / nearest 10 rupees. Default nearest rupee.
+PY-07 Pay day per frequency (for example the 7th for monthly, Saturday for weekly).
+PY-08 Daily pay is worked out: next morning from the previous day's attendance / at check-out. Default next morning.
+PY-09 Payslip release: automatic when the run closes / manual. Default manual.
+PY-10 Payslip shows: bank and cash portions, leave balance, loan balance, attendance summary. Each on / off. Default all on.
+PY-11 Run approval: Payroll Officer alone / second approver. Default second approver.
+
+10.3.2 Payroll groups
+
+Requirements
+PG-R1 HR creates any number of payroll groups and names them freely.
+PG-R2 HR adds employees to a group singly, in bulk or by rule (branch, department, category, employee type).
+PG-R3 An employee is in exactly one payroll group at a time; moves are dated.
+PG-R4 Each group carries its own options below. Options can be overridden for one employee where marked.
+
+Settings (PG)
+PG-01 Pay frequency: daily / weekly / bi-weekly / monthly.
+PG-02 Wage types allowed in the group.
+PG-03 Payment method: bank only / cash only / split.
+PG-04 Split basis: fixed bank amount with the rest in cash / fixed cash amount with the rest in bank / percentage. Can be overridden per employee.
+PG-05 Statutory applies to this group: on / off. Takes effect when the Statutory module is available.
+PG-06 Daily allowance for this group: on / off.
+PG-07 Pay rules for this group, each on / off: late and early money deduction (PD), uninformed absence cut (LM-21), excess absence cut, informed and uninformed (LM-24), overtime pay, comp-off double pay, extra shift pay (SP-01), night-shift allowance (SP-05), earned weekly off (SP-08).
+PG-08 Day divisor for this group, if different from PY-05.
+PG-09 Pay day and payslip template for this group.
+PG-10 Advances and loans allowed for this group: on / off.
+PG-11 Reimbursements paid with this group's salary: on / off.
+
+10.3.3 Daily allowance (version 3)
+
+Requirements
+DA-R1 A fixed amount is earned for each day worked, in addition to the monthly salary and outside CTC.
+DA-R2 When enabled for a group, a daily allowance amount field appears in the pay master of each employee in the group.
+DA-R3 The allowance is listed separately on the payslip and in reports, and is never added to the salary figure.
+DA-R4 Where late and early deductions are set to come from the allowance, that day's allowance is reduced, at most to zero. Nothing beyond that day's allowance is taken, and the salary is untouched.
+DA-R5 Where the allowance is paid in cash each day, the Supervisor sees the amount due per employee and marks it paid.
+DA-R6 A correction after a daily payout is adjusted in the next payout.
+
+Settings (DA)
+DA-01 Daily allowance amount: default per group, overridable per employee.
+DA-02 Earned on: full present day = full amount; half day = half amount. Default as stated.
+DA-03 Earned on paid leave, holidays and weekly offs: each yes / no. Default no.
+DA-04 Earned for work on a holiday or weekly off: yes / no. Default yes.
+DA-05 Payout: each day in cash / with the salary. Default each day in cash.
+DA-06 Daily payout is worked out the next morning for the previous day, so that day's late and early deductions are known. Fixed.
+DA-07 Cash payout acknowledgement: none / Supervisor marks paid / employee confirms in the app. Default Supervisor marks paid.
+The detailed earning logic (DA-02 to DA-04) is to be finalised in review.
+
+10.3.4 Pay deduction rules
+
+Settings (PD)
+PD-01 Late and early money deduction: on / off. Default off.
+PD-02 Method: fixed amount per block of minutes / actual per-minute pay.
+PD-03 Fixed method: block size in minutes and amount per block (for example 15 minutes, 20 rupees).
+PD-04 Part of a block: counts as a full block / ignored. Default counts as a full block.
+PD-05 Per-minute method: uses the per-minute rate from the employee's salary and the group's day divisor.
+PD-06 Deducted from: salary / daily allowance only. Default salary.
+PD-07 Minutes counted: late and early minutes after grace that were not waived, compensated or covered by a permission.
+PD-08 Applies to: late only / early only / both. Default both.
+PD-09 Maximum deduction per day and per period. Default no cap.
+When PD-01 is on, the day-count penalties in LA-06, LA-10, EC-05 and EC-09 should be off for the same group. The system warns if both are on.
+
+10.3.5 Contract workers
+
+Requirements
+CW-R1 Contract workers are employees linked to a contractor and can use the monthly, daily or hourly wage type.
+CW-R2 A contractor is set as paid directly (each worker is paid through a payroll group) or through the contractor (one statement per contractor per period: workers, days or hours, rate, total).
+
+Settings (CW)
+CW-01 Contractor statement includes a service charge: none / percentage / fixed per worker. Default none.
+CW-02 Workers paid through a contractor receive payslips: yes / no. Default no.
+
+10.3.6 Shift and week pay rules
+
+Settings (SP)
+SP-01 Extra shift pay (double duty): on / off. Default off.
+SP-02 An extra shift is: a second rostered shift worked the same day / at least N hours worked beyond the normal shift. Default second rostered shift.
+SP-03 An extra shift is paid as: one more day's wage / overtime at the overtime rate / a fixed amount. Default one more day's wage.
+SP-04 Extra shift needs approval before pay: on / off. Default on.
+SP-05 Night-shift allowance: on / off. Default off.
+SP-06 A night qualifies when: the shift is marked as a night shift / at least N hours are worked between two set times (for example 22:00 to 06:00). Default shift marked as night.
+SP-07 Night-shift allowance amount: fixed per night / a percentage of the per-day rate. Not part of CTC.
+SP-08 Earned weekly off: on / off. Default off.
+SP-09 The weekly off is paid only if the employee is present at least N days that week. Default 6.
+SP-10 Days that count as present for SP-09: paid leave, holidays, on-duty. Each yes / no. Default all yes. A half day counts as half.
+SP-11 Weekly off not earned: unpaid (one deduction day for a monthly salary; no wage for a daily wage). Fixed.
+An extra shift paid under SP-03 is not also paid as overtime (BR-04).
+
+10.3.7 Client-specific payroll rules
+
+Payroll calculation usually differs from client to client. The standard base covers the common cases; anything beyond it is built by the vendor for that organisation as a client-specific rule.
+
+Requirements
+CR-R1 The vendor can add a rule for one organisation at defined points of the pay run: a custom input, a custom earning, a custom deduction, a change to how a standard component is worked out, a custom payslip layout, a custom report.
+CR-R2 A client-specific rule affects only that organisation, and only the payroll groups it is assigned to. No other client is affected.
+CR-R3 Each rule has a name, a plain-language description, a version and an effective date. It is listed in the vendor console, and in the organisation's settings as read-only.
+CR-R4 Before activation, the rule is run against the organisation's last closed period and the differences are shown for the organisation's sign-off.
+CR-R5 Client-specific rules obey the fixed business rules in section 12: the explanation is stored, net pay is never negative, closed runs never change.
+CR-R6 A rule that proves useful to several clients can be promoted into the standard base as a normal setting.
+CR-R7 Client-specific fields can be added to the employee and pay masters for use by these rules.
+
+Settings (CR)
+CR-01 Client-specific rules active for the organisation: managed by the vendor only.
+CR-02 Assignment: whole organisation / chosen payroll groups.
+CR-03 Organisation sign-off required before a rule goes live: on / off. Default on.
+
+10.3.8 Accounting export
+
+Requirements
+AE-R1 After a pay run closes, produce a pay journal: totals per earning and deduction, net pay by bank and by cash, advances and loans given and recovered.
+AE-R2 HR or accounts maps each pay component to a ledger name once.
+AE-R3 The journal can be split by branch, department or payroll group.
+AE-R4 Export as a spreadsheet and as a file that can be imported into Tally. The exact Tally format is to be confirmed.
+AE-R5 An export is marked as sent, and a re-export after an adjustment shows only the difference.
+
+Settings (AE)
+AE-01 Ledger mapping per component.
+AE-02 Journal split: none / branch / department / payroll group. Default branch.
+AE-03 One journal per pay run / one per month. Default per pay run.
+AE-04 Daily allowance cash payouts included as: a daily entry / a period total. Default period total.
+
+
+10.4 REIMBURSEMENTS (M04) - VERSION 2
+
+Requirements
+RB-R1 Organisation-defined claim types (travel, food, fuel, other).
+RB-R2 Employee submits a claim with amount, date and bill photo from web or app.
+RB-R3 Approval by manager, HR or both; partial approval allowed with a reason.
+RB-R4 Approved claims are paid with the next salary or separately, by bank or cash.
+
+Settings (RB)
+RB-01 Claim types, each with a limit per claim and per month.
+RB-02 Bill mandatory above an amount. Default above 200 rupees.
+RB-03 Claim must be submitted within N days of the expense. Default 30.
+RB-04 Approval levels, by amount slab.
+RB-05 Payout: with salary / separately. Default with salary.
+
+
+======================================================================
+11. LATER MODULES (OUTLINE ONLY)
+======================================================================
+
+11.1 STATUTORY (M05) - NOT YET SCHEDULED
+PF, ESI, professional tax and TDS calculated per payroll group where PG-05 is on. Challans and returns. Detailed requirements to be written before it is scheduled.
+
+11.2 BONUS (M06) - NOT YET SCHEDULED
+Monthly and yearly bonuses, fixed or linked to attendance. Detailed requirements to be written before it is scheduled.
+
+11.3 PROJECTS, TASKS AND TIME TRACKING (M07) - VERSION 3
+Projects and tasks; time logged per project; reports on hours and project cost; hours feeding employee pay and client billing. Detailed requirements to be written before version 3.
+
+11.4 PIECE RATE (M08) - NOT YET SCHEDULED
+An item and task list with a rate per unit; output entered per employee per day by the Supervisor and approved before pay; optional minimum daily guarantee; handling of rejected units. Detailed requirements to be written before it is scheduled.
+
+11.5 EMPLOYEE PERFORMANCE (M09) - VERSION 3
+Review cycles, criteria, ratings, feedback and access rules. Detailed requirements to be written before version 3.
+
+Earlier releases must leave room for these: payroll groups already carry the statutory flag, components can be added, and the pay run accepts inputs from new modules.
+
+
+======================================================================
+12. FIXED BUSINESS RULES (NOT CONFIGURABLE)
+======================================================================
+
+BR-01 Raw punches are never edited or deleted. A correction is a new punch marked manual, with a reason and an approver.
+BR-02 All calculation is rule-based and repeatable. No AI judgement in the calculation path.
+BR-03 Any new or changed input for an open period recalculates the affected days and totals.
+BR-04 No double penalty. One shortfall produces at most one pay effect; where two rules apply, the larger applies once.
+BR-05 The most specific policy assignment wins, using the version in force on the date.
+BR-06 A locked period and a closed pay run never change. A later correction posts only the difference to the next open period.
+BR-07 Nobody approves their own request.
+BR-08 Every pay-affecting result stores its explanation: punches, rule, version, approval.
+BR-09 A missing check-out is a missed punch, never an early check-out.
+BR-10 Count-based and minutes-based penalties are applied at period end, after regularisation is settled.
+BR-11 Times are stored in UTC with the branch's time zone. Exact times are stored; rounding affects totals only.
+BR-12 Net pay is never negative.
+BR-13 The daily allowance is never part of the salary figure, and a deduction set to come from the allowance never reaches the salary.
+BR-14 A disabled module or rule has no effect on any result.
+BR-15 Money rounding. Rates (per-day, per-hour, per-minute, overtime) are never rounded inside a calculation. Each amount is rounded to 2 decimals (paise) once, when it becomes a line on the payslip or in a report, using round half up (0.005 rounds up). Totals are the sum of the rounded lines. Net pay is then rounded by PY-06. When net pay is split into bank and cash, the two portions always add up exactly to net pay; which portion takes the rounding difference, and whether cash is paid in whole rupees, is open (Q18).
+
+Order of checks for a late arrival (early check-out follows the same order, mirrored):
+1. Day covered by leave, on-duty, holiday, weekly off or an exemption: not late.
+2. Expected start moved for half-day leave or an approved permission.
+3. Within grace, with grace uses remaining: on time.
+4. Approved regularisation or bulk waiver: waived.
+5. Conversion to a permission, if enabled and balance is available.
+6. Compensation by extra work, if enabled and satisfied: waived.
+7. Slab action applied, and the minutes passed to the money deduction rule if PD-01 is on.
+8. If the result is a late mark, it is counted for period-end penalties.
+
+
+======================================================================
+13. WORKED EXAMPLES
+======================================================================
+
+13.1 ATTENDANCE
+
+Unless stated: fixed shift 09:00 to 18:00, 60-minute fixed break 13:00 to 14:00, 8 required hours, shift-based status, late grace 10 minutes, early grace 5 minutes, default slabs, permission limit 2 per month.
+
+E1. Within grace
+In 09:08. Result: on time, no mark.
+
+E2. Late mark
+In 09:25, out 18:00. 25 minutes late, slab 11 to 120. Result: present, one late mark.
+
+E3. Late converted to permission (LA-15 = automatic)
+In 09:25, 2 permissions left. A 30-minute permission (09:00 to 09:30) is used. Result: present, no late mark, 1 permission left.
+
+E4. Late made up the same day (LA-13 on)
+In 09:25, out 18:30. 25 late minutes are covered by 30 extra minutes. Result: present, no late mark. Net hours 8 h 05.
+
+E5. Count-based penalty (LA-06 on, every 3rd late mark = half day)
+4 late marks in the period. One penalty of half a day at the 3rd mark. Recovered from casual leave; if the balance is zero, 0.5 day loss of pay.
+
+E6. Very late
+In 11:30, out 18:00. 150 minutes late, slab above 120. Result: half day present, half day absent. Not counted as a late mark (LA-23 = no).
+
+E7. Early check-out
+In 09:00, out 17:20. 40 minutes early, slab 6 to 120. Result: present, one early mark.
+
+E8. Hours-based status (flexible shift, 8 required hours)
+In 10:15, out 18:30, 60-minute break. Net 7 h 15, shortfall 45 minutes, above the 15-minute tolerance. With DS-05 = half day: half day. With DS-05 = deduct actual minutes: full day less 45 minutes. No separate late or early penalty.
+
+E9. Permission at end of shift
+Approved permission 16:00 to 18:00. Out 16:02. Result: present, no early mark, permission time counts as worked, 1 permission left.
+
+E10. Permission over-stay
+Approved permission 10:00 to 11:00. Out 10:00, back in 11:25. The extra 25 minutes count as late minutes. Result: present, one late mark.
+
+E11. Third permission in the month
+Limit is 2. With PM-18 = block: the request is refused and the employee can apply for half-day leave. With PM-18 = allow with HR approval as unpaid minutes: 60 minutes are deducted once HR approves.
+
+E12. Half-day leave plus late
+First-half leave approved. SH-11 is set to a fixed time, so the second half starts 14:00. In 14:20, out 18:00. 20 minutes late against the adjusted start. Result: half day leave, half day present, one late mark.
+
+E13. Missed check-out
+In 09:00, no out. Reminder sent at 18:30 and next morning. Employee requests 18:05; manager approves. Result: present. If still unresolved at the cut-off, MP-03 applies.
+
+E14. Bulk waiver
+Heavy rain on one date. HR waives late arrival for one location. All late marks for that date and location are cleared, with the reason logged.
+
+E15. Correction after lock
+28 October was marked absent and October is locked. On 5 November the day is corrected to present. Result: October is unchanged; the November payroll input carries a one-day arrear tagged 28 October.
+
+E16. On-duty for part of the day
+Approved on-duty 14:00 to 18:00 at a client site. In 09:00, out 13:55, no further punch. Result: present, full day, no early mark; the on-duty hours count as worked.
+
+E17. Punch at another branch
+Master branch A, allowed branch B. In and out at B. Result: present under the employee's own shift and rules; the day is costed to branch B. A punch at branch C, which is not allowed, is recorded and flagged for approval.
+
+E18. Web check-in with location and geo-fence
+Branch fence radius 200 metres, PC-04 = record and flag. Web check-in 60 metres from the centre: accepted. Web check-in 450 metres away: recorded and flagged, and not counted until the manager approves. Location permission refused in the browser: the punch is blocked (PC-13) and the employee is told why.
+
+E19. Absconding (LM-29 on, 7 days)
+7 continuous uninformed absent days. Result: employee flagged as absconding, HR alerted, pay held until HR returns the employee to active or starts offboarding.
+
+13.2 PAY
+
+Unless stated: monthly salary 15,000 rupees, day divisor 26, 8-hour shift. Per-day rate = 15,000 / 26 = 576.923... (shown as 576.92). Per-minute rate = 15,000 / 26 / 8 / 60 = 1.20192... (shown as 1.2019). Rates are not rounded in calculation; each amount is rounded to 2 decimals as a line (BR-15).
+
+P1. Daily allowance on top of salary
+Allowance 50 per day, 26 days worked in the month. Allowance earned = 1,300, paid in cash day by day. Salary = 15,000. Total received = 16,300. CTC shows 15,000.
+
+P2. Late deduction, fixed method, from salary
+20 rupees per 15 minutes, part block counts as full. 25 minutes late = 2 blocks = 40 deducted from salary.
+
+P3. Late deduction, per-minute method, from salary
+25 minutes late x 1.20192... = 30.048, rounded to 30.05, deducted from salary.
+
+P4. Late deduction from the daily allowance
+Same fixed method, allowance 50. 25 minutes late = 40. Allowance paid for the day = 10. Salary untouched.
+
+P5. Deduction larger than the allowance
+50 minutes late = 4 blocks = 80. Allowance for the day becomes 0. The remaining 30 is not taken from salary and is not carried forward.
+
+P6. Uninformed absence
+One absent day with no approved leave. Cut = 2 days = 1,153.85. If a leave request for that day is approved later, the extra day is reversed.
+
+P7. Excess absence, informed and uninformed kept separate
+Informed part: X = 3, Y = 1 for each day beyond X. Uninformed part: X = 2, Y = 1 for each day beyond X. Uninformed absence rule (LM-21) off. In the month: 5 approved paid leave days and 3 uninformed absent days.
+Informed: 2 days beyond X = 2 days cut. Uninformed: 3 days loss of pay, plus 1 day beyond X = 1 more day cut.
+Total cut = 2 + 3 + 1 = 6 days, shown as separate lines: excess informed leave 2 days = 1,153.85; loss of pay 3 days = 1,730.77; excess uninformed absence 1 day = 576.92. Total = 3,461.54.
+
+P8. Comp-off not taken
+Worked on a Sunday, comp-off approved, expiry 60 days. Not taken by expiry: one extra day's wage of 576.92 is paid in that period.
+
+P9. Advance
+Advance of 3,000 given on the 10th. Net pay before recovery is 14,000. Recovered in full; net paid 11,000.
+
+P10. Loan
+Loan of 12,000 over 6 instalments = 2,000 per month for 6 months, no interest.
+
+P11. Recovery larger than the cap
+Weekly-paid worker, net pay for the week 2,400, recovery due 2,000, cap 50%. Recovered 1,200; 800 carries to the next pay.
+
+P12. Bank and cash split
+Net pay 14,500. Fixed bank amount 10,000: bank 10,000, cash 4,500. Or 60% bank: bank 8,700, cash 5,800. One payslip shows both. With a percentage split, bank and cash always add up to net pay; how a paise difference is assigned is open (Q18).
+
+P13. Night-shift allowance
+100 per night, 10 night shifts in the month = 1,000, shown separately from salary.
+
+P14. Daily wage
+Rate 600 per day, weekly pay, 5.5 payable days in the week = 3,300.
+
+P15. Extra shift
+Daily wage 600. Works a second rostered shift the same day, approved. Paid 1,200 for the day, with no overtime on top.
+
+P16. Earned weekly off
+Needs 6 days present in the week. Present 4 days: the weekly off is unpaid, one deduction day = 576.92, in addition to loss of pay for the 2 absent days.
+
+P17. Rounding tie
+Hourly wage 150.15, 7.5 payable hours. 150.15 x 7.5 = 1,126.125, rounded half up to 1,126.13 (BR-15).
+
+
+======================================================================
+14. REPORTS
+======================================================================
+
+Attendance
+R1 Daily attendance: status, in, out, net hours, flags
+R2 Monthly attendance register
+R3 Late arrival and early check-out: marks, minutes, penalties
+R4 Missed punch and regularisation
+R5 Exceptions: flagged punches, geo-fence, late sync, device status
+
+Leave and permission
+R6 Leave balance and leave taken
+R7 Uninformed absence; excess absence with informed and uninformed counts shown separately; sandwich days applied
+R8 Permission and on-duty register
+R9 Comp-off earned, taken, expired, paid
+
+People
+R10 Employee list and headcount by branch, department, category, type; days worked by branch
+R11 Joiners and leavers; onboarding and offboarding status
+R12 Document status and expiries; asset register
+
+Pay
+R13 Payroll input summary per period
+R14 Pay register per run and per payroll group
+R15 Bank list and cash list, paid and unpaid
+R16 Daily allowance earned, deducted and paid
+R17 Deductions with reasons
+R18 Overtime computed, approved and paid
+R19 Extra shifts, night-shift allowance and unearned weekly offs
+R20 Advance and loan ledger and outstanding balances
+R21 Contractor statements
+R22 Reimbursement claims and payouts
+R23 Adjustments and arrears
+R24 Accounting journal
+
+Control
+R25 Opening balances as confirmed
+R26 Settings history, policy and payroll group assignments, client-specific rules in use
+R27 Audit trail
+
+All reports filter by period, branch, department, payroll group and employee, respect the user's access scope and export to spreadsheet. Reports for a disabled module are hidden.
+
+
+======================================================================
+15. NON-FUNCTIONAL REQUIREMENTS
+======================================================================
+
+Targets marked (proposed) need confirmation.
+
+N1. One hosted application for all organisations; each organisation's data is fully separated.
+N2. Sized for hundreds of organisations and up to 2,000 employees per organisation (proposed: 500 organisations in the first two years).
+N3. A changed day is recalculated within seconds; a monthly pay run for 2,000 employees completes within 5 minutes (proposed).
+N4. The app records punches without a network and syncs with the original punch time.
+N5. Role and scope checks on every screen and API.
+N6. Web admin works on current desktop browsers; the employee app runs on Android and iOS.
+N7. English, Tamil and Hindi for the employee app, payslips and notifications; new languages can be added without code changes.
+N8. Availability 99.5% (proposed).
+N9. Personal, pay, bank, location and document data encrypted in transit and at rest.
+N10. Records kept for the period required by law for each organisation (to confirm).
+N11. Daily backups with tested restore.
+N12. New device makes and new modules can be added without changes to existing modules.
+
+
+======================================================================
+16. DATA AND AUDIT
+======================================================================
+
+The system must hold, at minimum:
+- Organisation: plan, modules, branches, departments, categories, contractors
+- Employee: master data and dated history
+- Punch: employee, time, source, device, location, original or manual, approver
+- Schedule: shifts, rosters, holidays
+- Policy sets and payroll groups: versions, effective dates, assignments
+- Daily result: status, hours, late and early minutes, marks, flags, versions and punches used
+- Requests: leave, permission, regularisation, overtime, advance, loan, reimbursement, with approvals
+- Balances and ledgers: leave, comp-off, permission, advance, loan
+- Pay: pay master, pay runs, payslips, payments, adjustments, daily allowance payouts, client-specific rules and their versions
+- Documents and assets: file, type, status, expiry; checklists, items issued and returned
+- Opening balances with as-of dates
+- Audit log: every create, change, approval, waiver, lock, payment and settings change, with user and time
+
+
+======================================================================
+17. ASSUMPTIONS AND DEPENDENCIES
+======================================================================
+
+A1. The vendor sets up each organisation and its modules; organisations do not self-register in version 1.
+A2. eSSL devices can push punches with enrolment ID and time.
+A3. Each organisation takes responsibility for the legality of its own pay rules and settings.
+A4. Statutory amounts are handled outside the app until the Statutory module is released.
+A5. Bank transfers are made by the organisation from the bank list; the app does not move money.
+A6. Detailed daily allowance logic and payslip layout will be finalised in review.
+A7. Client-specific payroll rules are built and maintained by the vendor, not by the organisation.
+
+
+======================================================================
+18. RISKS AND COMPLIANCE
+======================================================================
+
+K1. Double cuts for absence, deductions for approved leave beyond a threshold, money deductions for lateness, overtime rates and deductions from allowances are governed by labour law that varies by state and type of establishment. Each rule must be reviewed by a labour-law consultant before it is switched on for a client.
+K2. Payment and statutory records must show whatever each organisation is legally required to record, including for cash payments. The payslip and registers should be reviewed for this before go-live.
+K3. Too many settings can overwhelm HR. Mitigation: sector templates, plain-language summaries, test run.
+K4. Settings can conflict (for example a day-count penalty and a money deduction for the same lateness). Mitigation: fixed order of checks, BR-04, warnings when saving.
+K5. Identity documents, bank details, location and face images are sensitive personal data. Consent, purpose, access and retention need a privacy review.
+K6. Daily cash payouts are made before all corrections are known. Mitigation: next-morning calculation and adjustment in the next payout.
+K7. Module combinations multiply test cases. Mitigation: each module reads only defined inputs from the common part (MD-06).
+K8. Client-specific rules can grow into many one-off variations that are costly to maintain and test. Mitigation: defined points where rules plug in, a test run against the last closed period, and promotion of repeated rules into the standard base (CR-R4, CR-R6).
+K9. Browser location on desktop computers without GPS can be inaccurate by hundreds of metres, which can wrongly place a web punch outside the fence. Mitigation: the accuracy setting (PC-14), flag-not-block as the default (PC-04), and the IP restriction as an alternative check (PC-15).
+
+
+======================================================================
+19. ACCEPTANCE CRITERIA
+======================================================================
+
+Each criterion applies from the release that delivers the module concerned.
+
+AT1. Every worked example in section 13 produces the stated result in automated tests.
+AT2. Switching a module off hides it everywhere and removes its effect on results; switching it back on restores its data.
+AT3. Switching a rule group off removes its effect from the effective date.
+AT4. Two employees with identical punches in different policy sets and payroll groups get results that match their own rules.
+AT5. Reprocessing a day or a pay run with the same inputs gives an identical result.
+AT6. No test case produces two pay effects for one shortfall.
+AT7. A deduction set to come from the daily allowance never changes the salary in any test case.
+AT8. A correction after lock leaves the locked period unchanged and creates one adjustment.
+AT9. Net pay is never negative; unrecovered advances and loans carry forward correctly.
+AT10. Bank and cash portions always add up to net pay.
+AT11. Every deduction on a payslip has a readable reason.
+AT12. A new organisation is live on the common modules from a sector template with no code change.
+AT13. A user sees only the branches, modules and data their role allows.
+AT14. The app and payslip display correctly in English, Tamil and Hindi.
+AT15. A client-specific rule changes results only for the organisation and payroll groups it is assigned to.
+AT16. A punch at an allowed branch is accepted and costed as configured; a punch at a branch that is not allowed follows EM-07.
+AT17. Each role lands on its own dashboard.
+AT18. Opening balances entered with an as-of date carry correctly into leave, advances, loans and counters.
+AT19. A web punch stores its location, and is accepted, flagged or blocked against the geo-fence exactly as an app punch at the same spot would be.
+AT20. A user of one organisation cannot read or change another organisation's data through any screen, API, report, export or file link.
+AT21. Every timed job can be run twice for the same date without changing the result.
+
+
+======================================================================
+20. OPEN QUESTIONS FOR REVIEW
+======================================================================
+
+Q1. Daily allowance earning logic: confirm DA-02 to DA-04, especially paid leave and holidays.
+Q2. Is leave encashment (year end and on exit) needed in version 2 with payroll?
+Q3. Which bank list formats are needed first?
+Q4. How should a cash payout be acknowledged: Supervisor marks paid, or the employee confirms?
+Q5. Which modules and limits go into each plan, and which plans include the mobile app?
+Q6. Reimbursements is not named in the three-release list and is placed in version 2 with payroll. Confirm.
+Q7. Which Tally version and import format should the accounting export target?
+Q8. Client-specific rules: which two or three real client calculations should the plug-in points be designed around first?
+Q9. Absconding: is 7 continuous days the right default, and are they working days or calendar days?
+Q10. Extra shift: is it always a second rostered shift, or should it also be detected from hours alone?
+Q11. Are the proposed targets in section 15 acceptable?
+Q12. Payroll (version 2) comes before overtime and daily allowance (version 3). Is it acceptable to enter overtime pay manually in version 2, or should overtime pay or daily allowance move to version 2?
+Q13. Employee performance (version 3): what is expected from it?
+Q14. Who signs off this BRD?
+Q15. Can the eSSL device models in use send punches over a secure (HTTPS) connection? If not, a relay is needed (TB-04).
+Q16. Sign-in codes for employees: sent through an Indian SMS provider (cheaper, needs sender registration) or through Firebase phone sign-in?
+Q17. BR-15 uses round half up for paise. Confirm this, or choose round half to even.
+Q18. Bank and cash split: with a percentage split the portions can contain paise (for example net 14,501 at 60% bank = 8,700.60 bank, 5,800.40 cash). Which portion takes the rounding difference, and is the cash portion rounded to whole rupees (with the difference going to bank)?
+
+
+======================================================================
+21. RELEASE PLAN
+======================================================================
+
+Version 1: Core workforce management
+- Vendor console and module control
+- Organisation setup: branches, departments, designations, categories
+- Employee master, with master and allowed branches
+- User management, roles and access
+- Punch collection: eSSL devices and enrolment; app and web check-in with location and geo-fencing
+- Shifts and roster
+- Attendance rules and regularisation
+- Holidays and weekly offs
+- Leave, including sandwich policy, uninformed and excess absence and absconding; comp-off earning and balance
+- Permissions and on-duty
+- Attendance period and lock, with the attendance totals export
+- Opening balances for leave, permissions and counters
+- Dashboards, reports and notifications for the above
+- Web admin and employee app; English, Tamil and Hindi
+
+Version 2: Loans, advances, payroll and groups
+- Advances and loans
+- Payroll: standard base, payroll groups, pay master, pay frequencies, pay runs, payslips, bank and cash split
+- Pay deduction rules, shift and week pay rules, client-specific payroll rules
+- Comp-off double pay on expiry
+- Contractor statements, reimbursements, accounting export
+- Opening balances for advances and loans
+- Payroll dashboards and reports
+
+Version 3: Extended workforce capabilities
+- Onboarding and offboarding with configurable forms and checklists; documents and asset checklists
+- Daily allowance
+- Overtime: approval, caps and overtime pay
+- Tasks, projects and time tracking
+- Employee performance
+
+Not yet scheduled
+- Statutory, bonus, piece rate, more device makes
+
+Notes on the plan
+1. Results in days and minutes (deduction days, late and early minutes, overtime hours identified) are produced from version 1. They become money in version 2.
+2. Overtime hours are identified from version 1, but approval and overtime pay arrive in version 3. In version 2, overtime can be paid only as an amount entered per pay run.
+3. Daily allowance arrives in version 3, so taking late and early deductions from the daily allowance (PD-06) is available from version 3.
+4. Final settlement (PY-R10) is in version 2; the offboarding checklist that triggers it arrives in version 3. Until then HR starts a final settlement directly.
+5. Vendor console, comp-off, reimbursements, contractor statements, accounting export and client-specific rules are not named in the three-release list. They are placed with the release they depend on.
+6. Employee performance is new in this plan and has no detailed requirements yet.
+
+
+======================================================================
+22. TECHNICAL BASELINE
+======================================================================
+
+The detail and the monthly cost estimate are in the Technical Specification Document (TSD v0.1). This section records the decisions and the requirements that follow from them.
+
+22.1 STACK (DECIDED)
+
+- Backend: Rust
+- Web app: Next.js
+- Mobile app: Flutter (Android and iOS)
+- Database: Postgres, hosted on Supabase for now
+- Hosting: Google Cloud Run; Firebase for web hosting and push notifications
+- File storage: Google Cloud Storage
+- Timed work: Google Cloud Scheduler, with Cloud Tasks for queued work
+- Region: India (Mumbai)
+
+22.2 REQUIREMENTS THAT FOLLOW
+
+TB-01 Separate organisation handling. Every record carries its organisation. The database itself, not only the application, refuses to return or change a record that belongs to another organisation. No screen, API, report, export or file link can cross organisations. The only exception is vendor support access, which is time-limited and logged (VC-R6).
+TB-02 File storage. Documents, selfies, bill photos and exports are kept in Google Cloud Storage, private, in a separate folder for each organisation, and are opened only through short-lived links issued after an access check.
+TB-03 Timed work. Daily processing, reminders, escalations, period-end penalties, leave accrual, comp-off expiry and device-offline alerts are started by Google Cloud Scheduler. A failed run is retried and shown in the vendor health view (VC-R8). Every timed job is safe to run twice.
+TB-04 Device connection. Punch devices must reach the server over a secure connection. Where a device model cannot, punches pass through an approved relay. To be confirmed for the eSSL models in use.
+TB-05 Money. All amounts are stored and calculated as exact decimals. Rounding happens only as BR-15 states (each amount line to 2 decimals, half up) and where a setting says so (PY-06 net pay).
+TB-06 Portability. The database uses standard Postgres features only, so it can move off Supabase without redesign. Sign-in and file storage do not depend on Supabase.
+TB-07 Data location. All data and files are held in the India region.
+TB-08 Backups. Daily backups from the start; point-in-time recovery once live payroll data is held.
+TB-09 Environments. Test and live are separate. Client data is not copied into test without masking.
+
+
+END OF DOCUMENT

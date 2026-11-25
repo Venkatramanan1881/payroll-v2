@@ -1,0 +1,12 @@
+[package]
+name = "payroll-core"  # not "core": that would shadow Rust's built-in core crate
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+# Pure business rules: no database, no network (TSD §3.3).
+[dependencies]
+serde.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+serde_json.workspace = true

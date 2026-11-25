@@ -1,0 +1,18 @@
+DROP FUNCTION app.device_for_push(text, text);
+DROP TABLE app.punch_adjudications;
+DROP TABLE app.manual_punches;
+DROP TABLE app.punch_reviews;
+DROP TABLE app.punch_keys;
+DROP TABLE app.raw_punches;
+DROP FUNCTION app.add_month_partitions(regclass, date, integer);
+DROP TABLE app.geo_fence_versions;
+DROP TABLE app.geo_fences;
+DROP TABLE app.devices;
+DROP TYPE app.adjudication_origin;
+DROP TYPE app.adjudication_kind;
+DROP TYPE app.manual_punch_origin;
+DROP TYPE app.review_state;
+DROP TYPE app.punch_flag;
+DROP TYPE app.punch_direction;
+DROP TYPE app.punch_source;
+DROP TYPE app.fence_state;

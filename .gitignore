@@ -5,3 +5,6 @@ target/
 .env
 *.env
 .claude/settings.local.json
+
+# Uploads and exports written by local runs and tests (FILE_DIR)
+backend/crates/api/files/

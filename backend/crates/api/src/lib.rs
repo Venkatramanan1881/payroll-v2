@@ -9,6 +9,7 @@ pub mod days;
 pub mod employee_details;
 pub mod employees;
 pub mod error;
+pub mod explorer;
 pub mod fences;
 pub mod holidays;
 pub mod imports;

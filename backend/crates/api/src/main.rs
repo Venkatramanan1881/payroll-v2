@@ -37,7 +37,13 @@ async fn main() -> anyhow::Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".into());
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     tracing::info!("listening on {port}");
-    axum::serve(listener, api::router(state))
+    let mut app = api::router(state);
+    // Dev only: a page to call every route by hand at /dev/api. Never set this on a deployed server.
+    if std::env::var("API_EXPLORER").is_ok_and(|v| v == "1") {
+        tracing::warn!("API explorer on at /dev/api");
+        app = app.merge(api::explorer::router());
+    }
+    axum::serve(listener, app)
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();
         })

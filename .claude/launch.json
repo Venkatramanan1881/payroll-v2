@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api-explorer",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-Command", "Set-Location backend; $env:API_EXPLORER='1'; cargo run -p api --bin api"],
+      "port": 8080
+    }
+  ]
+}

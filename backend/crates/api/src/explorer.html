@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payroll API explorer</title>
+<style>
+  :root { --bg: #f7f7f5; --panel: #fff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --accent: #2457c5;
+          --get: #1f7a4d; --post: #2457c5; --put: #8a5a00; --patch: #7a3fb0; --delete: #b3261e; --code: #f1f0ec; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #9b9a93; --line: #34332f; --accent: #7aa2ff;
+            --get: #5cc595; --post: #7aa2ff; --put: #e0b25c; --patch: #c59af0; --delete: #ff8a80; --code: #2a2926; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  header label { color: var(--muted); font-size: 12px; }
+  input, textarea, select, button { font: inherit; color: inherit; }
+  input, textarea, select { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  main { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; height: calc(100vh - 54px); }
+  nav { border-right: 1px solid var(--line); overflow: auto; background: var(--panel); }
+  nav .filter { position: sticky; top: 0; padding: 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav .filter input { width: 100%; }
+  nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 12px 12px 4px; }
+  nav a { display: flex; gap: 8px; padding: 4px 12px; color: var(--text); text-decoration: none; font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; }
+  nav a:hover, nav a.on { background: var(--code); }
+  .m { flex: none; width: 52px; font-weight: 600; font-size: 11px; }
+  .GET { color: var(--get); } .POST { color: var(--post); } .PUT { color: var(--put); } .PATCH { color: var(--patch); } .DELETE { color: var(--delete); }
+  section { overflow: auto; padding: 16px 20px 40px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field span { font-size: 12px; color: var(--muted); }
+  .route { font-family: ui-monospace, Consolas, monospace; font-size: 15px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  pre { background: var(--code); padding: 12px; border-radius: 6px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; margin: 0; }
+  .status { font-weight: 600; }
+  .ok { color: var(--get); } .bad { color: var(--delete); }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; height: auto; } nav { max-height: 40vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Payroll API explorer</h1>
+  <label>Base URL <input id="base" size="26" placeholder="(this server)"></label>
+  <label>Bearer token <input id="token" size="40" placeholder="filled after a sign-in, or paste one"></label>
+  <button class="ghost" id="clear">Clear token</button>
+</header>
+<main>
+  <nav>
+    <div class="filter"><input id="q" placeholder="Filter routes, e.g. attendance/days or POST"></div>
+    <div id="list"></div>
+  </nav>
+  <section id="pane"><p class="muted">Pick a route on the left. Sign in first with one of the /v1/auth routes; the token in the response is kept for later calls.</p></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return sessionStorage.getItem(k) || ""; } catch { return ""; } },
+  set(k, v) { try { sessionStorage.setItem(k, v); } catch {} },
+};
+$("token").value = store.get("token");
+$("base").value = store.get("base");
+$("token").oninput = () => store.set("token", $("token").value.trim());
+$("base").oninput = () => store.set("base", $("base").value.trim());
+$("clear").onclick = () => { $("token").value = ""; store.set("token", ""); };
+
+let routes = [];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const group = (p) => { const s = p.split("/").filter(Boolean); return s[0] === "v1" ? (s[1] === "attendance" ? "attendance / " + (s[2] || "") : s[1]) : s[0]; };
+
+function draw() {
+  const q = $("q").value.trim().toLowerCase();
+  const shown = routes.filter((r) => !q || (r.method + " " + r.path + " " + r.handler).toLowerCase().includes(q));
+  let html = "", last = "";
+  shown.forEach((r) => {
+    const g = group(r.path);
+    if (g !== last) { html += `<h2>${esc(g)}</h2>`; last = g; }
+    html += `<a href="#" data-i="${routes.indexOf(r)}"><span class="m ${r.method}">${r.method}</span>${esc(r.path)}</a>`;
+  });
+  $("list").innerHTML = html || '<p class="muted" style="padding:12px">No routes match.</p>';
+}
+$("q").oninput = draw;
+$("list").onclick = (e) => {
+  const a = e.target.closest("a"); if (!a) return;
+  e.preventDefault();
+  document.querySelectorAll("nav a.on").forEach((x) => x.classList.remove("on"));
+  a.classList.add("on");
+  open(routes[+a.dataset.i]);
+};
+
+function open(r) {
+  const params = [...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+  const body = r.method !== "GET" && r.method !== "DELETE" || r.path.endsWith("/entries");
+  const upload = /imports$/.test(r.path) && r.method === "POST";
+  const saved = (k) => store.get("p:" + k);
+  $("pane").innerHTML = `
+    <p class="route"><span class="${r.method}">${r.method}</span> ${esc(r.path)}</p>
+    <p class="muted">Handler <code>${esc(r.handler)}</code> · request and response shapes: docs/api/API_CONTRACTS</p>
+    ${params.length ? `<div class="row">${params.map((p) => `<label class="field"><span>{${esc(p)}}</span><input data-p="${esc(p)}" value="${esc(saved(p))}" size="38"></label>`).join("")}</div>` : ""}
+    <div class="row">
+      <label class="field" style="flex:1"><span>Query string (without ?)</span><input id="qs" placeholder="from=2026-11-01&to=2026-11-25"></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>If-Match (record version)</span><input id="ifm" size="8" placeholder='"1"'></label>
+      <label class="field"><span>Idempotency-Key</span><input id="idem" size="38" value="${r.method === "GET" ? "" : crypto.randomUUID()}"></label>
+      ${upload ? '<label class="field"><span>File (sent as multipart field "file")</span><input id="file" type="file"></label>' : ""}
+    </div>
+    ${body ? `<label class="field"><span>JSON body</span><textarea id="body" rows="10" spellcheck="false">{}</textarea></label>` : ""}
+    <div class="row" style="margin-top:12px"><button id="send">Send</button><span class="muted">A new Idempotency-Key is made after each send.</span></div>
+    <div id="out"></div>`;
+  $("send").onclick = () => send(r, params);
+}
+
+async function send(r, params) {
+  let path = r.path;
+  for (const p of params) {
+    const v = document.querySelector(`[data-p="${p}"]`).value.trim();
+    store.set("p:" + p, v);
+    path = path.replace(`{${p}}`, encodeURIComponent(v));
+  }
+  const qs = $("qs").value.trim();
+  const url = ($("base").value.trim() || "") + path + (qs ? "?" + qs.replace(/^\?/, "") : "");
+  const headers = { "x-correlation-id": "explorer-" + crypto.randomUUID().slice(0, 8) };
+  if ($("token").value.trim()) headers.authorization = "Bearer " + $("token").value.trim();
+  if ($("ifm").value.trim()) headers["if-match"] = $("ifm").value.trim();
+  if ($("idem").value.trim()) headers["idempotency-key"] = $("idem").value.trim();
+  let body;
+  const file = $("file") && $("file").files[0];
+  if (file) {
+    body = new FormData(); body.append("file", file);
+  } else if ($("body")) {
+    const text = $("body").value.trim();
+    if (text) {
+      try { JSON.parse(text); } catch (e) { $("out").innerHTML = `<p class="bad">Body is not valid JSON: ${esc(e.message)}</p>`; return; }
+      body = text; headers["content-type"] = "application/json";
+    }
+  }
+  $("out").innerHTML = '<p class="muted">Sending…</p>';
+  const started = performance.now();
+  try {
+    const res = await fetch(url, { method: r.method, headers, body });
+    const ms = Math.round(performance.now() - started);
+    const type = res.headers.get("content-type") || "";
+    let shown;
+    if (type.includes("json")) {
+      const json = await res.json();
+      // Keep the access token from a sign-in, MFA or refresh response.
+      const t = json && (json.access_token || (json.tokens && json.tokens.access_token));
+      if (t) { $("token").value = t; store.set("token", t); }
+      shown = `<pre>${esc(JSON.stringify(json, null, 2))}</pre>${t ? '<p class="ok">Access token saved for later calls.</p>' : ""}`;
+    } else if (type.includes("text") || !type) {
+      shown = `<pre>${esc(await res.text())}</pre>`;
+    } else {
+      const blob = await res.blob();
+      const name = (res.headers.get("content-disposition") || "").match(/filename="?([^";]+)/)?.[1] || "download";
+      shown = `<p><a href="${URL.createObjectURL(blob)}" download="${esc(name)}">Download ${esc(name)}</a> (${blob.size} bytes, ${esc(type)})</p>`;
+    }
+    $("out").innerHTML = `<p><span class="status ${res.ok ? "ok" : "bad"}">${res.status} ${esc(res.statusText)}</span>
+      <span class="muted"> · ${ms} ms · correlation ${esc(res.headers.get("x-correlation-id") || "")}</span></p>${shown}`;
+  } catch (e) {
+    $("out").innerHTML = `<p class="bad">Request failed: ${esc(e.message)}</p>`;
+  }
+  if ($("idem").value) $("idem").value = crypto.randomUUID();
+}
+
+fetch("/dev/api/routes").then((r) => r.json()).then((list) => {
+  routes = list.sort((a, b) => group(a.path).localeCompare(group(b.path)) || a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
+  draw();
+});
+</script>
+</body>
+</html>

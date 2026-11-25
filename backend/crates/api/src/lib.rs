@@ -1,6 +1,8 @@
 //! HTTP API (Axum). Routes from docs/api/API_CONTRACTS are added module by module.
 
 pub mod access;
+pub mod at_imports;
+pub mod at_reports;
 pub mod auth;
 pub mod ctx;
 pub mod days;
@@ -13,6 +15,7 @@ pub mod imports;
 pub mod job_changes;
 pub mod jobs;
 pub mod mail;
+pub mod notify;
 pub mod org;
 pub mod periods;
 pub mod policies;
@@ -119,6 +122,10 @@ pub fn router(state: AppState) -> Router {
         .route("/internal/jobs/recalculate", post(jobs::recalculate))
         .route("/internal/jobs/finalise", post(jobs::finalise))
         .route("/internal/jobs/attendance-sweep", post(jobs::attendance_sweep))
+        .route("/internal/jobs/punch-import", post(jobs::attendance_import))
+        .route("/internal/jobs/attendance-reminders", post(jobs::attendance_reminders))
+        .route("/internal/jobs/attendance-cleanup", post(jobs::attendance_cleanup))
+        .route("/internal/jobs/roster-import", post(jobs::attendance_import))
         .route("/v1/reports/r10", get(reports::r10))
         .route("/v1/reports/r11", get(reports::r11))
         .route("/v1/exports", post(reports::create_export))
@@ -204,6 +211,33 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/attendance/me/days/{date}", get(days::my_get))
         .route("/v1/attendance/me/roster", get(days::my_roster))
         .route("/v1/attendance/me/attendance/features", get(days::features))
+        .route(
+            "/v1/attendance/punch-imports",
+            get(at_imports::punch_list).post(at_imports::punch_upload).layer(DefaultBodyLimit::max(imports::MAX_BYTES + 64 * 1024)),
+        )
+        .route("/v1/attendance/punch-imports/json", post(at_imports::punch_json).layer(DefaultBodyLimit::max(imports::MAX_BYTES)))
+        .route("/v1/attendance/punch-imports/{id}", get(at_imports::punch_get))
+        .route("/v1/attendance/punch-imports/{id}/errors", get(at_imports::punch_errors))
+        .route("/v1/attendance/roster-imports/template", get(at_imports::roster_template))
+        .route(
+            "/v1/attendance/roster-imports",
+            get(at_imports::roster_list).post(at_imports::roster_upload).layer(DefaultBodyLimit::max(imports::MAX_BYTES + 64 * 1024)),
+        )
+        .route("/v1/attendance/roster-imports/{id}", get(at_imports::roster_get))
+        .route("/v1/attendance/roster-imports/{id}/errors", get(at_imports::roster_errors))
+        .route("/v1/files/attendance-import-errors/{token}", get(at_imports::errors_file))
+        .route("/v1/attendance/reports/r1", get(at_reports::r1))
+        .route("/v1/attendance/reports/r2", get(at_reports::r2))
+        .route("/v1/attendance/reports/r3", get(at_reports::r3))
+        .route("/v1/attendance/reports/r4", get(at_reports::r4))
+        .route("/v1/attendance/reports/r5", get(at_reports::r5))
+        .route("/v1/attendance/reports/r23", get(at_reports::r23))
+        .route("/v1/attendance/reports/r26", get(at_reports::r26))
+        .route("/v1/attendance/dashboard/attendance", get(at_reports::dashboard))
+        .route("/v1/attendance/notification-settings", get(notify::settings).put(notify::settings_put))
+        .route("/v1/attendance/me/notifications", get(notify::mine))
+        .route("/v1/attendance/me/notifications/read-all", post(notify::read_all))
+        .route("/v1/attendance/me/notifications/{id}/read", post(notify::read))
         .route("/v1/org/branches", get(org::branches).post(org::branch_create))
         .route("/v1/org/branches/{id}", patch(org::branch_patch))
         .route("/v1/org/branches/{id}/deactivate", post(org::branch_deactivate))

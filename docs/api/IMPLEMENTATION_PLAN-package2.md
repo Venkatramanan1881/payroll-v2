@@ -16,7 +16,7 @@ Code layout follows Package 1: pure rules in `crates/core` (no HTTP, no SQL), ro
 | S7 ✅ | Recalculation | J-AT2, J-AT1, J-AT3, DY1–DY3, M2, M3, M1 | Input fingerprint; version rules | A punch updates its day within seconds; no older result overwrites a newer one |
 | S8 | Regularisation and corrections | RG1–RG6, C1–C2, W1, O1 | Approver routing; window and limit checks | Two-level approval, escalation, cancellation reverse the day |
 | S9 | Periods and lock | L1–L9, J-AT5, J-AT7 | Period generation; checklist; shadow recalculation and adjustments; period-end penalties | Lock, step back, correction after lock posts to the next period; payroll input file |
-| S10 | Imports, notifications, reports | P10, R6, J-AT6, N1–N2, J-AT8, J-AT4, J-AT9, RP1–RP8, DB1 | Import row validation | Reports respect scope and export |
+| S10 ✅ | Imports, notifications, reports | P10, R6, J-AT6, N1–N2, J-AT8, J-AT9, RP1–RP8, DB1 (J-AT4 moved to S4, on hold) | Import row validation | Reports respect scope and export |
 | S11 | Device gateway | G1 | eSSL push parsing | **Blocked by PUN-01** (device test) |
 
 Order: S0 → S1–S4 (independent of each other) → S5 → S6 → S7 → S8 → S9 → S10. S6 is the largest; it can start in parallel with S1–S5 because it is pure code.

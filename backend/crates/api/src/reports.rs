@@ -180,7 +180,8 @@ async fn sheet(ctx: &mut Ctx, report: &str, pairs: &[(String, String)]) -> ApiRe
             }
             Ok(out)
         }
-        _ => employees_sheet(ctx, pairs).await,
+        "employees" => employees_sheet(ctx, pairs).await,
+        code => crate::at_reports::sheet(ctx, code, pairs).await,
     }
 }
 
@@ -251,8 +252,9 @@ pub async fn create_export(State(state): State<AppState>, mut ctx: Ctx, headers:
         return Ok((StatusCode::from_u16(status).unwrap_or(StatusCode::OK), Json(body)).into_response());
     }
     let req: NewExport = parse(raw)?;
-    if !REPORTS.contains(&req.report_code.as_str()) {
-        return Err(AppError::validation(vec![FieldError::new("report_code", "invalid_value", "r10, r11 or employees")]).into());
+    // shortcut: payroll_input arrives with periods and lock (S9, on hold).
+    if !REPORTS.contains(&req.report_code.as_str()) && !crate::at_reports::CODES.contains(&req.report_code.as_str()) {
+        return Err(AppError::validation(vec![FieldError::new("report_code", "invalid_value", "r10, r11, employees, r1–r5, r23 or r26")]).into());
     }
     let pairs = pairs_of(&req.parameters)?;
     let rows = sheet(&mut ctx, &req.report_code, &pairs).await?;

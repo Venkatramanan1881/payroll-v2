@@ -115,24 +115,24 @@ pub async fn view(mut ctx: Ctx, RawQuery(raw): RawQuery) -> ApiResult<Json<Value
 
 #[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-struct Entry {
-    employee_id: Uuid,
-    work_date: NaiveDate,
-    shift_id: Option<Uuid>,
+pub(crate) struct Entry {
+    pub employee_id: Uuid,
+    pub work_date: NaiveDate,
+    pub shift_id: Option<Uuid>,
     #[serde(default)]
-    is_weekly_off: bool,
+    pub is_weekly_off: bool,
 }
 
 #[derive(Default)]
-struct Outcome {
-    applied: usize,
-    unchanged: usize,
-    failed: Vec<Value>,
+pub(crate) struct Outcome {
+    pub applied: usize,
+    pub unchanged: usize,
+    pub failed: Vec<Value>,
 }
 
 /// Applies entries one by one; a bad entry is reported and the rest still apply (AC-AT-02.2).
 // shortcut: a few queries per entry (fine for a few thousand); move to set-based SQL if large rosters are slow.
-async fn apply_entries(ctx: &mut Ctx, em: &EmSettings, entries: Vec<Entry>, source: &str) -> ApiResult<Outcome> {
+pub(crate) async fn apply_entries(ctx: &mut Ctx, em: &EmSettings, entries: Vec<Entry>, source: &str) -> ApiResult<Outcome> {
     let mut out = Outcome::default();
     let mut editable: HashMap<Uuid, bool> = HashMap::new();
     let mut shifts: HashMap<Uuid, Option<(String, Option<Uuid>)>> = HashMap::new();

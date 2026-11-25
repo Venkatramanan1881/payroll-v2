@@ -1,0 +1,5 @@
+external_id,punch_time,employee_code,enrolment_id,device_serial,direction,latitude,longitude
+x1,2026-11-23T09:00:00+05:30,TA0F48CHN0001,,,in,,
+x2,2026-11-23T18:05:00+05:30,TA0F48CHN0001,,,out,,
+x3,2026-11-24T09:10:00+05:30,TA0F48CHN0001,,,in,13.08,80.27
+x4,,TA0F48CHN0001,,,,,

@@ -715,3 +715,169 @@ async fn day_results_and_recalculation_end_to_end() {
         .bind(w.org).fetch_one(&w.pool).await.unwrap();
     assert!(changed >= 4, "{changed}");
 }
+
+/// Raw request for multipart uploads and .xlsx downloads.
+async fn call_raw(app: &axum::Router, method: Method, uri: &str, token: Option<&str>, headers: &[(&str, &str)], body: Vec<u8>) -> (StatusCode, Vec<u8>) {
+    use tower::ServiceExt;
+    let mut req = axum::http::Request::builder().method(method).uri(uri);
+    if let Some(t) = token {
+        req = req.header("authorization", format!("Bearer {t}"));
+    }
+    for (k, v) in headers {
+        req = req.header(*k, *v);
+    }
+    let res = app.clone().oneshot(req.body(axum::body::Body::from(body)).unwrap()).await.unwrap();
+    let status = res.status();
+    (status, axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap().to_vec())
+}
+
+/// Waits for a background import to finish and returns it.
+async fn import_done(w: &World, uri: &str) -> Value {
+    for _ in 0..120 {
+        let (s, _, b) = call(w, Method::GET, uri, Some(&w.admin), &[], None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        if b["state"] == "completed" || b["state"] == "failed" {
+            return b;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    panic!("import {uri} did not finish");
+}
+
+#[tokio::test]
+#[ignore = "writes to the database in DATABASE_URL"]
+async fn imports_notifications_and_reports_end_to_end() {
+    let w = world().await;
+    let admin = Some(w.admin.as_str());
+    let jobs_token = "jobs-token-jobs-token-jobs-token-10";
+    let bearer = format!("Bearer {jobs_token}");
+    let auth = [("authorization", bearer.as_str())];
+    let jobs = api::router(w.state.clone().with_jobs_token(jobs_token));
+    let drain = || async {
+        for _ in 0..30 {
+            let left: i64 = sqlx::query_scalar("SELECT count(*) FROM app.outbox_events WHERE org_id = $1 AND dispatched_at IS NULL")
+                .bind(w.org).fetch_one(&w.pool).await.unwrap();
+            if left == 0 {
+                return;
+            }
+            let (s, _, b) = call_app(&jobs, Method::POST, "/internal/outbox/dispatch", None, &auth, None).await;
+            assert_eq!(s, StatusCode::OK, "{b}");
+        }
+        panic!("outbox not drained");
+    };
+    let dates: Vec<String> = sqlx::query_scalar(
+        "SELECT (t + i)::text FROM (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date AS t) x, unnest(ARRAY[-2, -1, 3]) i ORDER BY i",
+    ).fetch_all(&w.pool).await.unwrap();
+    let (d1, d2, d3) = (dates[0].clone(), dates[1].clone(), dates[2].clone());
+    shift(&w, "key-im-gen1", json!({ "code": "GEN", "name": "General", "valid_from": "2026-01-01" })).await;
+    let (_, ravi) = post(&w, "/v1/employees", "key-im-ravi1", new_employee(&w, "Ravi", "+919800000081")).await;
+    let (emp, code) = (ravi["id"].as_str().unwrap().to_string(), ravi["employee_code"].as_str().unwrap().to_string());
+
+    // R6: roster file — GEN on d1 and d2, weekly off on d3, one unknown shift.
+    let (s, b) = call_raw(&w.app, Method::GET, "/v1/attendance/roster-imports/template", admin, &[], vec![]).await;
+    assert!(s == StatusCode::OK && b.starts_with(b"PK"));
+    let csv = format!("employee_code,work_date,shift_code,weekly_off\n{code},{d1},GEN,\n{code},{d2},gen,\n{code},{d3},,yes\n{code},{d3},NOPE,\n");
+    let mut body = b"--XB\r\nContent-Disposition: form-data; name=\"file\"; filename=\"roster.csv\"\r\nContent-Type: text/csv\r\n\r\n".to_vec();
+    body.extend_from_slice(csv.as_bytes());
+    body.extend_from_slice(b"\r\n--XB--\r\n");
+    let (s, b) = call_raw(&w.app, Method::POST, "/v1/attendance/roster-imports", admin, &[("content-type", "multipart/form-data; boundary=XB"), ("idempotency-key", "key-im-ro1")], body).await;
+    let b: Value = serde_json::from_slice(&b).unwrap();
+    assert_eq!(s, StatusCode::ACCEPTED, "{b}");
+    let ro = import_done(&w, &format!("/v1/attendance/roster-imports/{}", b["import_id"].as_str().unwrap())).await;
+    assert_eq!((ro["applied_count"].as_i64(), ro["error_count"].as_i64()), (Some(3), Some(1)), "{ro}");
+    assert_eq!(day(&w, &emp, &d3).await["is_weekly_off"], true);
+    let (s, _, l) = call(&w, Method::GET, "/v1/attendance/roster-imports", admin, &[], None).await;
+    assert_eq!((s, l["items"].as_array().map(Vec::len)), (StatusCode::OK, Some(1)), "{l}");
+
+    // P10 JSON: d1 in and out, d2 in only (a missed punch), and a row without a time.
+    let rows = json!({ "rows": [
+        { "external_id": "x1", "punch_time": format!("{d1}T09:00:00+05:30"), "employee_code": code, "direction": "in" },
+        { "external_id": "x2", "punch_time": format!("{d1}T18:05:00+05:30"), "employee_code": code, "direction": "out" },
+        { "external_id": "x3", "punch_time": format!("{d2}T09:10:00+05:30"), "employee_code": code, "direction": "in", "latitude": 13.08, "longitude": 80.27 },
+        { "external_id": "x4", "employee_code": code },
+    ] });
+    let (s, _, b) = call(&w, Method::POST, "/v1/attendance/punch-imports/json", admin, &[("idempotency-key", "key-im-p1")], Some(rows.clone())).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{b}");
+    let p1 = format!("/v1/attendance/punch-imports/{}", b["import_id"].as_str().unwrap());
+    let im = import_done(&w, &p1).await;
+    assert_eq!((im["applied_count"].as_i64(), im["error_count"].as_i64()), (Some(3), Some(1)), "{im}");
+    let (s, _, link) = call(&w, Method::GET, &format!("{p1}/errors"), admin, &[], None).await;
+    assert_eq!(s, StatusCode::OK, "{link}");
+    let (s, b) = call_raw(&w.app, Method::GET, link["url"].as_str().unwrap(), None, &[], vec![]).await;
+    assert!(s == StatusCode::OK && b.starts_with(b"PK"));
+    // The same rows again: applied rows skipped (same file); a new file repeating x1 is ignored (AC-AT-17.2).
+    let (_, _, b) = call(&w, Method::POST, "/v1/attendance/punch-imports/json", admin, &[("idempotency-key", "key-im-p2")], Some(rows)).await;
+    let im = import_done(&w, &format!("/v1/attendance/punch-imports/{}", b["import_id"].as_str().unwrap())).await;
+    assert_eq!((im["applied_count"].as_i64(), im["skipped_count"].as_i64()), (Some(0), Some(3)), "{im}");
+    let again = json!({ "rows": [{ "external_id": "x1", "punch_time": format!("{d1}T09:30:00+05:30"), "employee_code": code }] });
+    let (_, _, b) = call(&w, Method::POST, "/v1/attendance/punch-imports/json", admin, &[("idempotency-key", "key-im-p3")], Some(again)).await;
+    let im = import_done(&w, &format!("/v1/attendance/punch-imports/{}", b["import_id"].as_str().unwrap())).await;
+    assert_eq!((im["applied_count"].as_i64(), im["skipped_count"].as_i64()), (Some(0), Some(1)), "{im}");
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM app.raw_punches WHERE org_id = $1 AND source = 'import'").bind(w.org).fetch_one(&w.pool).await.unwrap();
+    assert_eq!(n, 3);
+    let (s, _, b) = call(&w, Method::POST, "/v1/attendance/punch-imports/json", admin, &[], Some(json!({ "rows": [{ "colour": "red" }] }))).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{b}");
+    drain().await;
+
+    // RP1–RP7 and RP8.
+    let w = &w;
+    let get = |uri: String| async move { call(w, Method::GET, &uri, admin, &[], None).await };
+    let (s, _, r) = get(format!("/v1/attendance/reports/r1?date={d1}")).await;
+    let row = r["rows"].as_array().unwrap().iter().find(|x| x["employee_code"] == json!(code)).cloned().unwrap_or_default();
+    assert_eq!((s, row["status"].as_str(), row["shift"].as_str()), (StatusCode::OK, Some("present"), Some("GEN")), "{r}");
+    let (_, _, r) = get(format!("/v1/attendance/reports/r2?from={d1}&to={d2}")).await;
+    let row = r["rows"].as_array().unwrap().iter().find(|x| x["employee_code"] == json!(code)).cloned().unwrap_or_default();
+    assert_eq!((row[&d1].as_str(), row[&d2].as_str(), r["columns"].as_array().map(Vec::len)), (Some("P"), Some("A?"), Some(4)), "{r}");
+    let (_, _, r) = get(format!("/v1/attendance/reports/r4?from={d1}&to={d2}")).await;
+    assert_eq!(r["rows"].as_array().map(Vec::len), Some(1), "{r}");
+    for rp in ["r3", "r5", "r23", "r26"] {
+        let (s, _, r) = get(format!("/v1/attendance/reports/{rp}?from={d1}&to={d2}")).await;
+        assert_eq!(s, StatusCode::OK, "{rp} {r}");
+    }
+    let (s, _, r) = get("/v1/attendance/reports/r1?colour=red".into()).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{r}");
+    let (s, _, x) = call(w, Method::POST, "/v1/exports", admin, &[("idempotency-key", "key-im-x1")], Some(json!({ "report_code": "r2", "parameters": { "from": d1, "to": d2 } }))).await;
+    assert_eq!((s, x["state"].as_str()), (StatusCode::OK, Some("ready")), "{x}");
+    let (s, b) = call_raw(&w.app, Method::GET, x["download_url"].as_str().unwrap(), None, &[], vec![]).await;
+    assert!(s == StatusCode::OK && b.starts_with(b"PK"));
+
+    // DB1.
+    let (s, _, b) = get("/v1/attendance/dashboard/attendance".into()).await;
+    assert_eq!((s, b["branches"].is_array(), b["pending_approvals"]["punch_reviews"].as_i64()), (StatusCode::OK, true, Some(0)), "{b}");
+
+    // N1: switch the HR digest off; no row means on.
+    let ns = "/v1/attendance/notification-settings";
+    let (s, _, b) = call(w, Method::PUT, ns, admin, &[], Some(json!({ "rows": [{ "event": "ApprovalsPending", "channel": "in_app", "recipient": "hr", "enabled": false }] }))).await;
+    assert_eq!((s, b["rows"][0]["recipient"].as_str()), (StatusCode::OK, Some("hr_manager")), "{b}");
+    let (s, _, b) = call(w, Method::PUT, ns, admin, &[], Some(json!({ "rows": [{ "event": "x-y", "channel": "sms", "recipient": "boss", "enabled": true }] }))).await;
+    assert_eq!((s, b["errors"].as_array().map(Vec::len)), (StatusCode::UNPROCESSABLE_ENTITY, Some(3)), "{b}");
+
+    // J-AT8: Ravi's missed punch on d2 is reminded once per kind; N2 reads it.
+    let e: Uuid = emp.parse().unwrap();
+    let user: Uuid = sqlx::query_scalar("INSERT INTO app.users (org_id, kind, employee_id, display_name, state) VALUES ($1, 'employee', $2, 'Ravi', 'active') RETURNING id")
+        .bind(w.org).bind(e).fetch_one(&w.pool).await.unwrap();
+    sqlx::query("INSERT INTO app.user_roles (org_id, user_id, role_id) SELECT $1, $2, id FROM app.roles WHERE org_id = $1 AND builtin_key = 'employee'")
+        .bind(w.org).bind(user).execute(&w.pool).await.unwrap();
+    let (s, _, b) = call_app(&jobs, Method::POST, "/internal/jobs/attendance-reminders", None, &auth, Some(json!({ "org_id": w.org }))).await;
+    let sent = b["missed_punch_reminders"].as_i64().unwrap_or(0);
+    assert!(s == StatusCode::OK && sent >= 1, "{b}");
+    let (_, _, b) = call_app(&jobs, Method::POST, "/internal/jobs/attendance-reminders", None, &auth, Some(json!({ "org_id": w.org }))).await;
+    assert_eq!(b["missed_punch_reminders"].as_i64(), Some(0), "{b}");
+    let token = issue_access_token(SECRET, user, w.org, session(&w.pool, w.org, user).await, "employee");
+    let me = Some(token.as_str());
+    let (s, _, b) = call(w, Method::GET, "/v1/attendance/me/notifications?unread=true", me, &[], None).await;
+    assert_eq!((s, b["unread_count"].as_i64(), b["items"][0]["event"].as_str()), (StatusCode::OK, Some(sent), Some("MissedPunch")), "{b}");
+    let first = b["items"][0]["id"].as_str().unwrap().to_string();
+    let (s, _, _) = call(w, Method::POST, &format!("/v1/attendance/me/notifications/{first}/read"), me, &[], None).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _, _) = call(w, Method::POST, &format!("/v1/attendance/me/notifications/{first}/read"), admin, &[], None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND); // someone else's notification
+    let (_, _, b) = call(w, Method::POST, "/v1/attendance/me/notifications/read-all", me, &[], None).await;
+    assert_eq!(b["marked"].as_i64(), Some(sent - 1), "{b}");
+    let (s, _, _) = call(w, Method::GET, "/v1/attendance/reports/r1", me, &[], None).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+
+    // J-AT9.
+    let (s, _, b) = call_app(&jobs, Method::POST, "/internal/jobs/attendance-cleanup", None, &auth, None).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+}

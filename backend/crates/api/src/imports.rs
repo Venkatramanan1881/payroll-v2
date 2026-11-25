@@ -23,10 +23,10 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 pub const MAX_BYTES: usize = 5 * 1024 * 1024;
-const MAX_ROWS: usize = 5000;
-const ERRORS_LINK_SECONDS: u64 = 10 * 60;
+pub(crate) const MAX_ROWS: usize = 5000;
+pub(crate) const ERRORS_LINK_SECONDS: u64 = 10 * 60;
 /// A run that has not reported progress for this long is taken to be dead; J5 may take it over.
-const STALE_MINUTES: i32 = 10;
+pub(crate) const STALE_MINUTES: i32 = 10;
 
 const PERSONAL: [&str; 8] = [
     "full_name", "mobile", "date_of_birth", "gender", "email", "address", "emergency_contact_name", "emergency_contact_phone",
@@ -76,11 +76,11 @@ async fn custom_defs(tx: &mut Tx) -> ApiResult<Vec<CustomDef>> {
 
 // ---------- reading the file ----------
 
-fn unreadable(why: impl Into<String>) -> AppError {
+pub(crate) fn unreadable(why: impl Into<String>) -> AppError {
     AppError::unprocessable("file_unreadable", "File not readable", why)
 }
 
-fn too_large(why: &str) -> AppError {
+pub(crate) fn too_large(why: &str) -> AppError {
     AppError::new(413, "file_too_large", "File too large", why)
 }
 
@@ -98,7 +98,7 @@ fn cell_text(d: &Data) -> String {
 }
 
 /// All rows of the first sheet as trimmed text. A file starting "PK" is read as .xlsx, anything else as CSV.
-fn read_sheet(bytes: &[u8]) -> Result<Vec<Vec<String>>, AppError> {
+pub(crate) fn read_sheet(bytes: &[u8]) -> Result<Vec<Vec<String>>, AppError> {
     if bytes.starts_with(b"PK") {
         let mut book: Xlsx<_> = open_workbook_from_rs(std::io::Cursor::new(bytes)).map_err(|_| unreadable("Not a readable .xlsx file"))?;
         let range = book.worksheet_range_at(0).ok_or_else(|| unreadable("The workbook has no sheet"))?.map_err(|_| unreadable("The first sheet can't be read"))?;
@@ -151,7 +151,7 @@ fn header(row: &[String], defs: &[CustomDef]) -> Result<Vec<Col>, AppError> {
 }
 
 /// Data rows with their sheet row number (header = row 1); blank rows are left out.
-fn data_rows(rows: &[Vec<String>]) -> Vec<(i32, &Vec<String>)> {
+pub(crate) fn data_rows(rows: &[Vec<String>]) -> Vec<(i32, &Vec<String>)> {
     rows.iter().enumerate().skip(1).filter(|(_, r)| r.iter().any(|c| !c.is_empty())).map(|(i, r)| (i as i32 + 1, r)).collect()
 }
 

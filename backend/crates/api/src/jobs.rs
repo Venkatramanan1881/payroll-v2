@@ -93,6 +93,13 @@ pub async fn bulk_import(State(s): State<AppState>, headers: HeaderMap, Body(raw
     Ok(Json(crate::imports::process(&s, job.org_id, job.import_id).await?))
 }
 
+/// J-AT6: process a punch or roster import (same body for both routes). Safe to call again.
+pub async fn attendance_import(State(s): State<AppState>, headers: HeaderMap, Body(raw): Body) -> ApiResult<Json<Value>> {
+    check_caller(&s, &headers)?;
+    let job: ImportJob = parse(raw)?;
+    Ok(Json(crate::at_imports::process(&s, job.org_id, job.import_id).await?))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExportJob {
@@ -244,6 +251,42 @@ async fn probation_mail(s: &AppState, org: Uuid, payload: &Value) -> Result<(), 
         }
     }
     Ok(())
+}
+
+/// J-AT8 (every 15 minutes): missed-punch reminders and the managers' digest.
+pub async fn attendance_reminders(State(s): State<AppState>, headers: HeaderMap, Body(raw): Body) -> ApiResult<Json<Value>> {
+    check_caller(&s, &headers)?;
+    let job: OrgJob = parse(raw)?;
+    Ok(Json(crate::notify::reminders(&s, job.org_id).await?))
+}
+
+/// J-AT9 (daily): delete punch idempotency keys older than 90 days, selfie files older than 13 months (DEC-51;
+/// the punch row stays) and attendance import files 30 days after the import finished.
+// shortcut: selfies are looked for in the month before the 13-month line only (a daily job covers it); a gap of
+// over a month in runs leaves older files, clear those by hand.
+pub async fn attendance_cleanup(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    check_caller(&s, &headers)?;
+    let orgs: Vec<Uuid> = sqlx::query_scalar("SELECT app.active_org_ids()").fetch_all(&s.pool).await?;
+    let (mut keys, mut files) = (0u64, 0usize);
+    for org in &orgs {
+        let mut tx = db::begin_tenant(&s.pool, *org, None).await?;
+        keys += sqlx::query("DELETE FROM app.punch_keys WHERE created_at < now() - interval '90 days'").execute(&mut *tx).await?.rows_affected();
+        let old: Vec<String> = sqlx::query_scalar(
+            "SELECT selfie_ref FROM app.raw_punches WHERE selfie_ref IS NOT NULL
+               AND punched_at >= now() - interval '14 months' AND punched_at < now() - interval '13 months'
+             UNION ALL
+             SELECT file_ref FROM app.attendance_imports WHERE file_ref IS NOT NULL AND state IN ('completed', 'failed') AND completed_at < now() - interval '30 days'",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        for f in &old {
+            if tokio::fs::remove_file(s.files_dir.join(f)).await.is_ok() {
+                files += 1;
+            }
+        }
+    }
+    Ok(Json(json!({ "organisations": orgs.len(), "punch_keys_deleted": keys, "files_deleted": files })))
 }
 
 /// J7 (daily): purge idempotency keys older than 24 hours (section 1.6), expire exports and delete

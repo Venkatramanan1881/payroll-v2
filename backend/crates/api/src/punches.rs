@@ -65,7 +65,7 @@ async fn punch_doc(tx: &mut Tx, id: Uuid) -> ApiResult<Value> {
 }
 
 /// The employee's placement at instant `at`: (job version, master branch, its time zone, local work date).
-async fn placement(tx: &mut Tx, employee: Uuid, at: DateTime<Utc>) -> ApiResult<Option<(Uuid, Uuid, String, NaiveDate)>> {
+pub(crate) async fn placement(tx: &mut Tx, employee: Uuid, at: DateTime<Utc>) -> ApiResult<Option<(Uuid, Uuid, String, NaiveDate)>> {
     Ok(sqlx::query_as(
         "SELECT jv.id, jv.master_branch_id, b.time_zone, ($2 AT TIME ZONE b.time_zone)::date
          FROM app.employee_job_versions jv JOIN app.branches b ON b.id = jv.master_branch_id

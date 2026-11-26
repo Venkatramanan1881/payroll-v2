@@ -383,7 +383,8 @@ pub async fn process(state: &AppState, org: Uuid, id: Uuid) -> ApiResult<Value> 
     c.commit_and_continue(&state.pool).await?;
 
     let (mut applied, mut errors) = (0, 0);
-    for (n, (row_number, cells)) in data_rows(&rows).into_iter().enumerate() {
+    let mut todo: Vec<(i32, Cells)> = Vec::new();
+    for (row_number, cells) in data_rows(&rows) {
         if let Some(outcome) = done.get(&row_number) {
             applied += (outcome == "applied") as i32;
             errors += (outcome == "error") as i32;
@@ -394,45 +395,186 @@ pub async fn process(state: &AppState, org: Uuid, id: Uuid) -> ApiResult<Value> 
             c.commit_and_continue(&state.pool).await?;
             continue;
         }
-        let cell: Cells = cols.iter().filter_map(|(k, &i)| cells.get(i).map(|v| (*k, v.trim().to_string()))).filter(|(_, v)| !v.is_empty()).collect();
-        let result = match kind {
-            Kind::Punch => punch_row(&mut c, &em, id, &cell).await,
-            Kind::Roster => roster_row(&mut c, &em, &cell).await,
+        todo.push((row_number, cols.iter().filter_map(|(k, &i)| cells.get(i).map(|v| (*k, v.trim().to_string()))).filter(|(_, v)| !v.is_empty()).collect()));
+    }
+    let mut seen = Seen::default();
+    for chunk in todo.chunks(BATCH) {
+        // Punches go in one transaction per batch; a batch that hits a database error is redone row by row.
+        let fast = match kind {
+            Kind::Punch => punch_batch(&mut c, &em, id, &checksum, chunk, &mut seen).await.ok(),
+            Kind::Roster => None,
         };
-        match result {
-            Ok(Ok((emp, outcome))) => match record(&mut c, id, &checksum, row_number, Some(emp), outcome, None).await {
-                Ok(()) => {
-                    c.commit_and_continue(&state.pool).await?;
-                    applied += (outcome == "applied") as i32;
-                }
-                // The same file's row was applied by another run meanwhile: keep that one.
-                Err(_) => {
-                    c.rollback_and_continue(&state.pool).await?;
-                    record(&mut c, id, &checksum, row_number, Some(emp), "skipped", None).await?;
-                    c.commit_and_continue(&state.pool).await?;
-                }
-            },
-            Ok(Err((emp, e))) => {
-                c.rollback_and_continue(&state.pool).await?;
-                record(&mut c, id, &checksum, row_number, emp, "error", Some(&e.to_string())).await?;
+        match fast {
+            Some((a, e)) => {
                 c.commit_and_continue(&state.pool).await?;
-                errors += 1;
+                applied += a;
+                errors += e;
             }
-            Err(e) => {
+            None => {
                 c.rollback_and_continue(&state.pool).await?;
-                let e = row_err(None, "", e.0.code, &e.0.detail);
-                record(&mut c, id, &checksum, row_number, None, "error", Some(&e.1.to_string())).await?;
-                c.commit_and_continue(&state.pool).await?;
-                errors += 1;
+                for (row_number, cell) in chunk {
+                    let (a, e) = one_row(state, &mut c, &em, kind, id, &checksum, *row_number, cell, &mut seen).await?;
+                    applied += a;
+                    errors += e;
+                }
             }
         }
-        if n % 50 == 49 {
-            set_state(state, org, id, applied, errors, false, None).await?; // progress, and keeps the claim fresh
-        }
+        set_state(state, org, id, applied, errors, false, None).await?; // progress, and keeps the claim fresh
     }
     c.commit().await?;
     set_state(state, org, id, applied, errors, true, None).await?;
     Ok(json!({ "state": "completed", "applied_count": applied, "error_count": errors }))
+}
+
+/// Rows per transaction when importing punches.
+const BATCH: usize = 50;
+
+/// One row in its own transaction; returns (applied, errors) to add. Used for rosters and for punch batches that failed.
+#[allow(clippy::too_many_arguments)]
+async fn one_row(state: &AppState, c: &mut Ctx, em: &EmSettings, kind: Kind, id: Uuid, checksum: &str, row_number: i32, cell: &Cells, seen: &mut Seen) -> ApiResult<(i32, i32)> {
+    let result = match kind {
+        Kind::Punch => punch_row(c, em, id, cell, seen).await,
+        Kind::Roster => roster_row(c, em, cell).await,
+    };
+    Ok(match result {
+        Ok(Ok((emp, outcome))) => match record(c, id, checksum, row_number, Some(emp), outcome, None).await {
+            Ok(()) => {
+                c.commit_and_continue(&state.pool).await?;
+                ((outcome == "applied") as i32, 0)
+            }
+            // The same file's row was applied by another run meanwhile: keep that one.
+            Err(_) => {
+                c.rollback_and_continue(&state.pool).await?;
+                record(c, id, checksum, row_number, Some(emp), "skipped", None).await?;
+                c.commit_and_continue(&state.pool).await?;
+                (0, 0)
+            }
+        },
+        Ok(Err((emp, e))) => {
+            c.rollback_and_continue(&state.pool).await?;
+            record(c, id, checksum, row_number, emp, "error", Some(&e.to_string())).await?;
+            c.commit_and_continue(&state.pool).await?;
+            (0, 1)
+        }
+        Err(e) => {
+            c.rollback_and_continue(&state.pool).await?;
+            let e = row_err(None, "", e.0.code, &e.0.detail);
+            record(c, id, checksum, row_number, None, "error", Some(&e.1.to_string())).await?;
+            c.commit_and_continue(&state.pool).await?;
+            (0, 1)
+        }
+    })
+}
+
+/// Checks every row of a punch batch (lookups cached), then writes keys, punches, events and row outcomes with one
+/// statement each. Any database error fails the whole batch and nothing of it is kept. Returns (applied, errors).
+async fn punch_batch(c: &mut Ctx, em: &EmSettings, import: Uuid, checksum: &str, batch: &[(i32, Cells)], seen: &mut Seen) -> ApiResult<(i32, i32)> {
+    let mut ok = Vec::new();
+    let mut out: Vec<(i32, Option<Uuid>, &str, Option<String>)> = Vec::new();
+    for (n, cells) in batch {
+        match punch_check(c, em, cells, seen).await? {
+            Ok(p) => ok.push((*n, p)),
+            Err((emp, e)) => out.push((*n, emp, "error", Some(e.to_string()))),
+        }
+    }
+    let claimed = write_punches(c, import, ok.iter().map(|(_, p)| p).collect()).await?;
+    for (n, p) in &ok {
+        out.push((*n, Some(p.emp), if claimed.contains(&p.id) { "applied" } else { "skipped" }, None));
+    }
+    sqlx::query(
+        "INSERT INTO app.attendance_import_rows (org_id, import_id, file_checksum, row_number, employee_id, outcome, error_message)
+         SELECT $1, $2, $3, x.n, x.e, x.o::app.bulk_row_outcome, x.m FROM unnest($4::int4[], $5::uuid[], $6::text[], $7::text[]) AS x(n, e, o, m)",
+    )
+    .bind(c.org_id)
+    .bind(import)
+    .bind(checksum)
+    .bind(out.iter().map(|r| r.0).collect::<Vec<_>>())
+    .bind(out.iter().map(|r| r.1).collect::<Vec<_>>())
+    .bind(out.iter().map(|r| r.2).collect::<Vec<_>>())
+    .bind(out.iter().map(|r| r.3.clone()).collect::<Vec<_>>())
+    .execute(&mut *c.tx)
+    .await?;
+    let count = |o: &str| out.iter().filter(|r| r.2 == o).count() as i32;
+    Ok((count("applied"), count("error")))
+}
+
+/// Lookups that repeat across the rows of one file.
+#[derive(Default)]
+struct Seen {
+    by_code: HashMap<String, Option<Uuid>>,
+    allowed: HashMap<Uuid, bool>,
+    import_on: HashMap<(Uuid, NaiveDate), bool>,
+}
+
+/// A punch row that passed every check, ready to write.
+struct PunchIn {
+    id: Uuid,
+    emp: Uuid,
+    key: String,
+    at: DateTime<Utc>,
+    direction: String,
+    lat: Option<f64>,
+    lon: Option<f64>,
+    enrolment: Option<String>,
+    device: Option<Uuid>,
+    master: Uuid,
+    work_date: NaiveDate,
+}
+
+/// Writes the punches whose external_id is new (key, raw punch, `PunchRecorded`); returns the ids written.
+async fn write_punches(c: &mut Ctx, import: Uuid, ps: Vec<&PunchIn>) -> ApiResult<HashSet<Uuid>> {
+    if ps.is_empty() {
+        return Ok(HashSet::new());
+    }
+    // A key seen before, or twice in this batch, is claimed once; the others become `skipped` (AC-AT-17.2).
+    let claimed: HashSet<Uuid> = sqlx::query_scalar(
+        "INSERT INTO app.punch_keys (org_id, source, idempotency_key, punch_id, punched_at)
+         SELECT $1, 'import', x.k, x.p, x.t FROM unnest($2::text[], $3::uuid[], $4::timestamptz[]) AS x(k, p, t)
+         ON CONFLICT DO NOTHING RETURNING punch_id",
+    )
+    .bind(c.org_id)
+    .bind(ps.iter().map(|p| p.key.clone()).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.id).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.at).collect::<Vec<_>>())
+    .fetch_all(&mut *c.tx)
+    .await?
+    .into_iter()
+    .collect();
+    let ps: Vec<&PunchIn> = ps.into_iter().filter(|p| claimed.contains(&p.id)).collect();
+    sqlx::query(
+        "INSERT INTO app.raw_punches (id, org_id, punched_at, source, employee_id, enrolment_id, device_id, import_id, direction, source_time, branch_id,
+                                      latitude, longitude, idempotency_key)
+         SELECT x.id, $1, x.at, 'import', x.emp, x.enrol, x.dev, $2, x.dir::app.punch_direction, x.at, x.br, x.lat, x.lon, x.k
+         FROM unnest($3::uuid[], $4::timestamptz[], $5::uuid[], $6::text[], $7::uuid[], $8::text[], $9::uuid[], $10::float8[], $11::float8[], $12::text[])
+           AS x(id, at, emp, enrol, dev, dir, br, lat, lon, k)",
+    )
+    .bind(c.org_id)
+    .bind(import)
+    .bind(ps.iter().map(|p| p.id).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.at).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.emp).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.enrolment.clone()).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.device).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.direction.clone()).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.master).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.lat).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.lon).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.key.clone()).collect::<Vec<_>>())
+    .execute(&mut *c.tx)
+    .await?;
+    // Same payload as Ctx::event, one row per punch.
+    sqlx::query(
+        "INSERT INTO app.outbox_events (org_id, event_type, aggregate_type, aggregate_id, payload)
+         SELECT $1, 'PunchRecorded', 'employee', x.emp, jsonb_build_object('employee_id', x.emp, 'work_date', x.d, 'punch_id', x.id)
+         FROM unnest($2::uuid[], $3::date[], $4::uuid[]) AS x(emp, d, id)",
+    )
+    .bind(c.org_id)
+    .bind(ps.iter().map(|p| p.emp).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.work_date).collect::<Vec<_>>())
+    .bind(ps.iter().map(|p| p.id).collect::<Vec<_>>())
+    .execute(&mut *c.tx)
+    .await?;
+    Ok(claimed)
 }
 
 async fn record(c: &mut Ctx, import: Uuid, checksum: &str, row: i32, emp: Option<Uuid>, outcome: &str, err: Option<&str>) -> Result<(), sqlx::Error> {
@@ -466,8 +608,19 @@ fn get<'a>(row: &'a Cells, name: &str) -> Option<&'a str> {
 type RowResult = ApiResult<Result<(Uuid, &'static str), RowErr>>;
 
 /// One punch row → a raw punch (source `import`) and `PunchRecorded`, or `skipped` for a known external_id.
+async fn punch_row(c: &mut Ctx, em: &EmSettings, import: Uuid, row: &Cells, seen: &mut Seen) -> RowResult {
+    Ok(match punch_check(c, em, row, seen).await? {
+        Ok(p) => {
+            let written = write_punches(c, import, vec![&p]).await?;
+            Ok((p.emp, if written.contains(&p.id) { "applied" } else { "skipped" }))
+        }
+        Err(e) => Err(e),
+    })
+}
+
+/// Checks one punch row and resolves its employee and work date, writing nothing.
 // shortcut: imported punches skip the PC-06 off-day rule and fences (files carry no proof to check); add if HR asks.
-async fn punch_row(c: &mut Ctx, em: &EmSettings, import: Uuid, row: &Cells) -> RowResult {
+async fn punch_check(c: &mut Ctx, em: &EmSettings, row: &Cells, seen: &mut Seen) -> ApiResult<Result<PunchIn, RowErr>> {
     let Some(key) = get(row, "external_id").filter(|k| k.len() <= 100) else {
         return Ok(Err(row_err(None, "external_id", "required", "A unique ID for the punch, up to 100 characters")));
     };
@@ -486,7 +639,14 @@ async fn punch_row(c: &mut Ctx, em: &EmSettings, import: Uuid, row: &Cells) -> R
     };
     let mut device = None;
     let emp = if let Some(code) = get(row, "employee_code") {
-        employee_by_code(c, code).await?
+        match seen.by_code.get(&code.to_lowercase()) {
+            Some(e) => *e,
+            None => {
+                let e = employee_by_code(c, code).await?;
+                seen.by_code.insert(code.to_lowercase(), e);
+                e
+            }
+        }
     } else if let (Some(enrol), Some(serial)) = (get(row, "enrolment_id"), get(row, "device_serial")) {
         device = sqlx::query_scalar::<_, Uuid>("SELECT id FROM app.devices WHERE lower(serial) = lower($1)").bind(serial).fetch_optional(&mut *c.tx).await?;
         if device.is_none() {
@@ -506,50 +666,44 @@ async fn punch_row(c: &mut Ctx, em: &EmSettings, import: Uuid, row: &Cells) -> R
     let Some(emp) = emp else {
         return Ok(Err(row_err(None, "employee_code", "not_found", "No such employee")));
     };
-    if !allowed(c, emp, PUNCH_IMPORT, Access::Edit, em).await? {
+    let in_scope = match seen.allowed.get(&emp) {
+        Some(a) => *a,
+        None => {
+            let a = allowed(c, emp, PUNCH_IMPORT, Access::Edit, em).await?;
+            seen.allowed.insert(emp, a);
+            a
+        }
+    };
+    if !in_scope {
         return Ok(Err(row_err(None, "employee_code", "not_found", "No such employee in your scope")));
     }
     let Some((_, master, _, work_date)) = crate::punches::placement(&mut c.tx, emp, at).await? else {
         return Ok(Err(row_err(Some(emp), "punch_time", "outside_employment", "There is no employment on that date")));
     };
-    if !crate::policies::settings_for(&mut c.tx, emp, work_date).await?.punch_import {
+    let import_on = match seen.import_on.get(&(emp, work_date)) {
+        Some(on) => *on,
+        None => {
+            let on = crate::policies::settings_for(&mut c.tx, emp, work_date).await?.punch_import;
+            seen.import_on.insert((emp, work_date), on);
+            on
+        }
+    };
+    if !import_on {
         return Ok(Err(row_err(Some(emp), "", "feature_disabled", "Punch imports are switched off for this employee (PC-01)")));
     }
-    let id = Uuid::new_v4();
-    let claimed: Option<Uuid> = sqlx::query_scalar(
-        "INSERT INTO app.punch_keys (org_id, source, idempotency_key, punch_id, punched_at) VALUES ($1, 'import', $2, $3, $4)
-         ON CONFLICT DO NOTHING RETURNING punch_id",
-    )
-    .bind(c.org_id)
-    .bind(key)
-    .bind(id)
-    .bind(at)
-    .fetch_optional(&mut *c.tx)
-    .await?;
-    if claimed.is_none() {
-        return Ok(Ok((emp, "skipped")));
-    }
-    sqlx::query(
-        "INSERT INTO app.raw_punches (id, org_id, punched_at, source, employee_id, enrolment_id, device_id, import_id, direction, source_time, branch_id,
-                                      latitude, longitude, idempotency_key)
-         VALUES ($1, $2, $3, 'import', $4, $5, $6, $7, $8::app.punch_direction, $3, $9, $10::float8, $11::float8, $12)",
-    )
-    .bind(id)
-    .bind(c.org_id)
-    .bind(at)
-    .bind(emp)
-    .bind(get(row, "enrolment_id"))
-    .bind(device)
-    .bind(import)
-    .bind(direction)
-    .bind(master)
-    .bind(lat)
-    .bind(lon)
-    .bind(key)
-    .execute(&mut *c.tx)
-    .await?;
-    c.event("PunchRecorded", "employee", emp, json!({ "employee_id": emp, "work_date": work_date, "punch_id": id })).await?;
-    Ok(Ok((emp, "applied")))
+    Ok(Ok(PunchIn {
+        id: Uuid::new_v4(),
+        emp,
+        key: key.to_string(),
+        at,
+        direction: direction.to_string(),
+        lat,
+        lon,
+        enrolment: get(row, "enrolment_id").map(str::to_string),
+        device,
+        master,
+        work_date,
+    }))
 }
 
 /// One roster row through the same code as the roster screen (R2).

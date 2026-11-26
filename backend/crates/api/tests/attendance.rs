@@ -789,18 +789,19 @@ async fn imports_notifications_and_reports_end_to_end() {
     let (s, _, l) = call(&w, Method::GET, "/v1/attendance/roster-imports", admin, &[], None).await;
     assert_eq!((s, l["items"].as_array().map(Vec::len)), (StatusCode::OK, Some(1)), "{l}");
 
-    // P10 JSON: d1 in and out, d2 in only (a missed punch), and a row without a time.
+    // P10 JSON: d1 in and out, d2 in only (a missed punch), a row without a time, and x1 again in the same batch.
     let rows = json!({ "rows": [
         { "external_id": "x1", "punch_time": format!("{d1}T09:00:00+05:30"), "employee_code": code, "direction": "in" },
         { "external_id": "x2", "punch_time": format!("{d1}T18:05:00+05:30"), "employee_code": code, "direction": "out" },
         { "external_id": "x3", "punch_time": format!("{d2}T09:10:00+05:30"), "employee_code": code, "direction": "in", "latitude": 13.08, "longitude": 80.27 },
         { "external_id": "x4", "employee_code": code },
+        { "external_id": "x1", "punch_time": format!("{d1}T09:01:00+05:30"), "employee_code": code, "direction": "in" },
     ] });
     let (s, _, b) = call(&w, Method::POST, "/v1/attendance/punch-imports/json", admin, &[("idempotency-key", "key-im-p1")], Some(rows.clone())).await;
     assert_eq!(s, StatusCode::ACCEPTED, "{b}");
     let p1 = format!("/v1/attendance/punch-imports/{}", b["import_id"].as_str().unwrap());
     let im = import_done(&w, &p1).await;
-    assert_eq!((im["applied_count"].as_i64(), im["error_count"].as_i64()), (Some(3), Some(1)), "{im}");
+    assert_eq!((im["applied_count"].as_i64(), im["error_count"].as_i64(), im["skipped_count"].as_i64()), (Some(3), Some(1), Some(1)), "{im}");
     let (s, _, link) = call(&w, Method::GET, &format!("{p1}/errors"), admin, &[], None).await;
     assert_eq!(s, StatusCode::OK, "{link}");
     let (s, b) = call_raw(&w.app, Method::GET, link["url"].as_str().unwrap(), None, &[], vec![]).await;
@@ -808,7 +809,7 @@ async fn imports_notifications_and_reports_end_to_end() {
     // The same rows again: applied rows skipped (same file); a new file repeating x1 is ignored (AC-AT-17.2).
     let (_, _, b) = call(&w, Method::POST, "/v1/attendance/punch-imports/json", admin, &[("idempotency-key", "key-im-p2")], Some(rows)).await;
     let im = import_done(&w, &format!("/v1/attendance/punch-imports/{}", b["import_id"].as_str().unwrap())).await;
-    assert_eq!((im["applied_count"].as_i64(), im["skipped_count"].as_i64()), (Some(0), Some(3)), "{im}");
+    assert_eq!((im["applied_count"].as_i64(), im["skipped_count"].as_i64()), (Some(0), Some(4)), "{im}");
     let again = json!({ "rows": [{ "external_id": "x1", "punch_time": format!("{d1}T09:30:00+05:30"), "employee_code": code }] });
     let (_, _, b) = call(&w, Method::POST, "/v1/attendance/punch-imports/json", admin, &[("idempotency-key", "key-im-p3")], Some(again)).await;
     let im = import_done(&w, &format!("/v1/attendance/punch-imports/{}", b["import_id"].as_str().unwrap())).await;

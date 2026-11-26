@@ -8,3 +8,7 @@ target/
 
 # Uploads and exports written by local runs and tests (FILE_DIR)
 backend/crates/api/files/
+backend/files/
+
+# UI reference only, never committed
+payledger-enterprise-payroll/

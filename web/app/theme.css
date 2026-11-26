@@ -1,0 +1,201 @@
+/*
+ * Colour palettes. Every colour in the app comes from these tokens; globals.css holds layout only.
+ *
+ * The active palette is set by PALETTE in app/layout.tsx (<html data-palette="…">).
+ * Light/dark is <html data-theme="light"> (dark is the default).
+ *
+ * To change colours: edit the values below.
+ * To add a palette: copy the "violet" pair of blocks, rename it, then set PALETTE in app/layout.tsx to that name.
+ */
+
+/* ---------- mono: pure black and white (default) ---------- */
+:root {
+  --page: #000000;
+  --rail: #000000;
+  --rail-border: #1f1f1f;
+  --rail-on-bg: #ffffff;
+  --rail-on-fg: #000000;
+  --card: #0a0a0a;
+  --card-border: #262626;
+  --input: #151515;
+  --input-hover: #1d1d1d;
+  --border: #262626;
+  --divider: #1c1c1c;
+  --text: #ffffff;
+  --label: #d6d6d6;
+  --muted: #8f8f8f;
+  --accent: #ffffff;
+  --accent-text: #ffffff;
+  --tint: rgba(255, 255, 255, 0.07);
+  --tint-strong: rgba(255, 255, 255, 0.16);
+  --ring: rgba(255, 255, 255, 0.35);
+  --main-bg: #ffffff;
+  --main-fg: #000000;
+  --main-glow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+  --btn-bg: transparent;
+  --ghost-border: #333333;
+  --logo-bg: #ffffff;
+  --logo-fg: #000000;
+  --badge-bg: #ffffff;
+  --badge-fg: #000000;
+  --spin: #ffffff;
+  --good: #ffffff;
+  --good-bg: rgba(255, 255, 255, 0.12);
+  --warn: #bdbdbd;
+  --warn-bg: rgba(255, 255, 255, 0.06);
+  --bad: #ff6b6b;
+  --bad-bg: rgba(255, 107, 107, 0.12);
+  --tab-on-bg: #ffffff;
+  --tab-on-fg: #000000;
+  --topbar: rgba(0, 0, 0, 0.8);
+  --shadow: none;
+  --overlay: rgba(0, 0, 0, 0.7);
+  --glow-a: transparent;
+  --glow-b: transparent;
+  --dots: transparent;
+  --brand-panel: #0a0a0a;
+  color-scheme: dark;
+}
+[data-theme="light"] {
+  --page: #ffffff;
+  --rail: #ffffff;
+  --rail-border: #e6e6e6;
+  --rail-on-bg: #000000;
+  --rail-on-fg: #ffffff;
+  --card: #ffffff;
+  --card-border: #e6e6e6;
+  --input: #f4f4f4;
+  --input-hover: #ebebeb;
+  --border: #e6e6e6;
+  --divider: #efefef;
+  --text: #000000;
+  --label: #262626;
+  --muted: #6b6b6b;
+  --accent: #000000;
+  --accent-text: #000000;
+  --tint: rgba(0, 0, 0, 0.05);
+  --tint-strong: rgba(0, 0, 0, 0.12);
+  --ring: rgba(0, 0, 0, 0.3);
+  --main-bg: #000000;
+  --main-fg: #ffffff;
+  --main-glow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --btn-bg: #ffffff;
+  --ghost-border: #d4d4d4;
+  --logo-bg: #000000;
+  --logo-fg: #ffffff;
+  --badge-bg: #000000;
+  --badge-fg: #ffffff;
+  --spin: #000000;
+  --good: #000000;
+  --good-bg: rgba(0, 0, 0, 0.08);
+  --warn: #525252;
+  --warn-bg: rgba(0, 0, 0, 0.04);
+  --bad: #c62828;
+  --bad-bg: rgba(198, 40, 40, 0.08);
+  --tab-on-bg: #000000;
+  --tab-on-fg: #ffffff;
+  --topbar: rgba(255, 255, 255, 0.85);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.03);
+  --overlay: rgba(0, 0, 0, 0.45);
+  --glow-a: transparent;
+  --glow-b: transparent;
+  --dots: rgba(0, 0, 0, 0.06);
+  --brand-panel: #000000;
+  color-scheme: light;
+}
+
+/* ---------- violet: the Huly look (violet accent, orange glow) ---------- */
+[data-palette="violet"] {
+  --page: #0c0c0f;
+  --rail: #0a0a0c;
+  --rail-border: #1a1a1f;
+  --rail-on-bg: rgba(139, 124, 246, 0.16);
+  --rail-on-fg: #c3b9ff;
+  --card: #141418;
+  --card-border: #24252b;
+  --input: #1c1c21;
+  --input-hover: #23232a;
+  --border: #26262c;
+  --divider: #222227;
+  --text: #ededf0;
+  --label: #c4c6cc;
+  --muted: #9a9ca5;
+  --accent: #8b7cf6;
+  --accent-text: #c3b9ff;
+  --tint: rgba(139, 124, 246, 0.16);
+  --tint-strong: rgba(139, 124, 246, 0.22);
+  --ring: rgba(139, 124, 246, 0.34);
+  --main-bg: #e9e9ec;
+  --main-fg: #0c0c0f;
+  --main-glow: 0 0 0 1px rgba(255, 138, 76, 0.55), 0 0 18px rgba(255, 138, 76, 0.32), inset -22px 0 26px -12px rgba(255, 138, 76, 0.44);
+  --btn-bg: transparent;
+  --ghost-border: #34343b;
+  --logo-bg: #e9e9ec;
+  --logo-fg: #0c0c0f;
+  --badge-bg: #ff8a4c;
+  --badge-fg: #0c0c0f;
+  --spin: #8b7cf6;
+  --good: #5fd39a;
+  --good-bg: rgba(95, 211, 154, 0.13);
+  --warn: #f5b454;
+  --warn-bg: rgba(245, 180, 84, 0.13);
+  --bad: #ff7b89;
+  --bad-bg: rgba(255, 123, 137, 0.13);
+  --tab-on-bg: #26262c;
+  --tab-on-fg: #c3b9ff;
+  --topbar: rgba(12, 12, 15, 0.78);
+  --shadow: none;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --glow-a: rgba(139, 124, 246, 0.24);
+  --glow-b: rgba(139, 124, 246, 0.16);
+  --dots: transparent;
+  --brand-panel: #141418;
+  color-scheme: dark;
+}
+[data-palette="violet"][data-theme="light"] {
+  --page: #f6f6f8;
+  --rail: rgba(255, 255, 255, 0.75);
+  --rail-border: #e7e5e1;
+  --rail-on-bg: #141312;
+  --rail-on-fg: #a78bfa;
+  --card: #ffffff;
+  --card-border: #e7e5e1;
+  --input: #f2f1ef;
+  --input-hover: #eae8e4;
+  --border: #e7e5e1;
+  --divider: #eeece8;
+  --text: #171615;
+  --label: #3d3b38;
+  --muted: #64625e;
+  --accent: #8a5cf6;
+  --accent-text: #6a3fd9;
+  --tint: rgba(138, 92, 246, 0.11);
+  --tint-strong: rgba(138, 92, 246, 0.16);
+  --ring: rgba(138, 92, 246, 0.28);
+  --main-bg: #141312;
+  --main-fg: #ffffff;
+  --main-glow: 0 0 0 1px rgba(240, 122, 58, 0.55), 0 0 18px rgba(240, 122, 58, 0.34), inset -22px 0 26px -12px rgba(255, 138, 76, 0.44);
+  --btn-bg: #ffffff;
+  --ghost-border: #dddad4;
+  --logo-bg: #141312;
+  --logo-fg: #ffffff;
+  --badge-bg: #f07a3a;
+  --badge-fg: #ffffff;
+  --spin: #8a5cf6;
+  --good: #6a3fd9;
+  --good-bg: rgba(138, 92, 246, 0.11);
+  --warn: #c2410c;
+  --warn-bg: rgba(194, 65, 12, 0.1);
+  --bad: #b91c1c;
+  --bad-bg: rgba(185, 28, 28, 0.09);
+  --tab-on-bg: #141312;
+  --tab-on-fg: #ffffff;
+  --topbar: rgba(246, 246, 248, 0.78);
+  --shadow: 0 1px 2px rgba(23, 22, 21, 0.04), 0 4px 14px rgba(23, 22, 21, 0.03);
+  --overlay: rgba(0, 0, 0, 0.45);
+  --glow-a: rgba(138, 92, 246, 0.22);
+  --glow-b: rgba(138, 92, 246, 0.14);
+  --dots: rgba(23, 22, 21, 0.07);
+  --brand-panel: #141312;
+  color-scheme: light;
+}

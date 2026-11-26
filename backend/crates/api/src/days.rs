@@ -553,6 +553,7 @@ async fn list_days(mut ctx: Ctx, raw: Option<String>, only: Option<Uuid>) -> Api
             "branch_id" => qb.push(" AND d.branch_id = ").push_bind(v.parse::<Uuid>().map_err(|_| bad_param("branch_id", "Not an id"))?),
             "department_id" => qb.push(" AND jv.department_id = ").push_bind(v.parse::<Uuid>().map_err(|_| bad_param("department_id", "Not an id"))?),
             "status" => qb.push(" AND d.status::text = ").push_bind(v),
+            "flag" if v == "any" => qb.push(" AND cardinality(d.flags) > 0"),
             "flag" => qb.push(" AND ").push_bind(v).push(" = ANY(d.flags)"),
             "late" => qb.push(if v == "true" { " AND d.late_minutes > 0" } else { " AND d.late_minutes = 0" }),
             _ => qb.push(if v == "finalised" { " AND d.finalised_at IS NOT NULL" } else { " AND d.finalised_at IS NULL" }),

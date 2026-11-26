@@ -431,6 +431,12 @@ struct AdminSignIn {
     password: String,
 }
 
+/// Dev switch: MFA_DISABLED=1 skips the authenticator step for admin and vendor sign-in.
+// shortcut: password-only sign-in until MFA is wanted again; remove the env line to restore A6.
+pub fn mfa_disabled() -> bool {
+    std::env::var("MFA_DISABLED").is_ok_and(|v| v == "1")
+}
+
 pub async fn admin_sign_in(State(state): State<AppState>, Body(raw): Body) -> ApiResult<Response> {
     let req: AdminSignIn = parse(raw)?;
     let org: Option<Uuid> = sqlx::query_scalar("SELECT app.org_id_for_admin_email($1)")
@@ -462,6 +468,11 @@ pub async fn admin_sign_in(State(state): State<AppState>, Body(raw): Body) -> Ap
         return refuse(tx, user).await;
     }
     succeeded(&mut tx, user).await?;
+    if mfa_disabled() {
+        let body = open_session(&mut tx, &state, org, user, "admin", None).await?;
+        tx.commit().await?;
+        return Ok(Json(body).into_response());
+    }
     tx.commit().await?;
     Ok(Json(json!({
         "mfa_token": step_token(&state, user, org, "mfa", MFA_TOKEN_SECONDS),

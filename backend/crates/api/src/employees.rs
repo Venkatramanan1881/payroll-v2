@@ -274,6 +274,37 @@ pub(crate) fn push_filtered(qb: &mut QueryBuilder<'static, Postgres>, ctx: &Ctx,
     Ok(())
 }
 
+/// Headcount for the employee dashboard: totals by status, department and master branch.
+/// Same scope and filters as the list (E1), so the numbers match what the caller can open.
+pub async fn summary(mut ctx: Ctx, RawQuery(raw): RawQuery) -> ApiResult<Json<Value>> {
+    let scope = ctx.scope("employee.view")?;
+    let pairs = query_pairs(raw)?;
+    check_params(&pairs, &[])?;
+    let as_of = as_of_param(&pairs)?;
+    let em = em_settings(&mut ctx.tx, as_of).await?;
+
+    let mut qb = QueryBuilder::new("WITH f AS (SELECT st.status, jv.department_id, jv.master_branch_id");
+    push_filtered(&mut qb, &ctx, &scope, &em, as_of, &pairs)?;
+    qb.push(
+        ") SELECT jsonb_build_object(
+           'as_of', ",
+    )
+    .push_bind(as_of)
+    .push(
+        "::date,
+           'total', (SELECT count(*) FROM f),
+           'by_status', COALESCE((SELECT jsonb_object_agg(k, n) FROM (SELECT COALESCE(status, 'unknown') k, count(*) n FROM f GROUP BY 1) x), '{}'::jsonb),
+           'by_department', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', d.id, 'code', d.code, 'name', d.name, 'count', x.n) ORDER BY x.n DESC, d.name)
+               FROM (SELECT department_id, count(*) n FROM f GROUP BY 1) x LEFT JOIN app.departments d ON d.id = x.department_id), '[]'::jsonb),
+           'by_branch', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', b.id, 'short_code', b.short_code, 'name', b.name, 'count', x.n) ORDER BY x.n DESC, b.name)
+               FROM (SELECT master_branch_id, count(*) n FROM f GROUP BY 1) x LEFT JOIN app.branches b ON b.id = x.master_branch_id), '[]'::jsonb)
+         ) AS summary",
+    );
+    let body: Value = qb.build().fetch_one(&mut *ctx.tx).await?.get("summary");
+    ctx.commit().await?;
+    Ok(Json(body))
+}
+
 pub async fn list(mut ctx: Ctx, RawQuery(raw): RawQuery) -> ApiResult<Json<Value>> {
     let scope = ctx.scope("employee.view")?;
     let pairs = query_pairs(raw)?;

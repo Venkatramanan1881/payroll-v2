@@ -43,6 +43,9 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("API explorer on at /dev/api");
         app = app.merge(api::explorer::router());
     }
+    if api::auth::mfa_disabled() {
+        tracing::warn!("MFA_DISABLED=1: admin and vendor sign in with a password only. Never set this on a deployed server.");
+    }
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();

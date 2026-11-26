@@ -144,6 +144,9 @@ pub async fn sign_in(State(state): State<AppState>, Body(raw): Body) -> ApiResul
     let hash = row.as_ref().and_then(|r| r.get::<Option<String>, _>("password_hash"));
     let ok = verify_secret(req.password, hash).await; // runs even with no account, so timing doesn't tell
     let id: Uuid = row.filter(|_| ok).map(|r| r.get("id")).ok_or_else(invalid)?;
+    if crate::auth::mfa_disabled() {
+        return vendor_token(&state, id);
+    }
     Ok(Json(json!({ "mfa_token": step_token(&state, id, Uuid::nil(), "vendor_mfa", MFA_TOKEN_SECONDS) })).into_response())
 }
 
@@ -173,8 +176,12 @@ pub async fn mfa(State(state): State<AppState>, Body(raw): Body) -> ApiResult<Re
     if !ok {
         return Err(invalid().into());
     }
+    vendor_token(&state, claims.sub)
+}
+
+fn vendor_token(state: &AppState, id: Uuid) -> ApiResult<Response> {
     let exp = jsonwebtoken::get_current_timestamp() + VENDOR_TOKEN_SECONDS;
-    let claims = Claims { sub: claims.sub, org: Uuid::nil(), sid: Uuid::nil(), kind: "vendor".into(), exp };
+    let claims = Claims { sub: id, org: Uuid::nil(), sid: Uuid::nil(), kind: "vendor".into(), exp };
     let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(&state.jwt_secret)).map_err(|_| AppError::internal())?;
     Ok(Json(json!({ "access_token": token, "expires_in": VENDOR_TOKEN_SECONDS })).into_response())
 }

@@ -275,6 +275,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/org/custom-fields/{id}", patch(org::custom_field_patch))
         .route("/v1/org/custom-fields/{id}/deactivate", post(org::custom_field_deactivate))
         .route("/v1/employees", get(employees::list).post(employees::create))
+        .route("/v1/employees/summary", get(employees::summary))
         .route("/v1/employees/{id}", get(employees::get))
         .route("/v1/employees/{id}/personal", patch(employees::patch_personal))
         .route("/v1/employees/{id}/history", get(employee_details::history))

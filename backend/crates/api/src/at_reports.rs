@@ -276,30 +276,24 @@ pub async fn dashboard(mut ctx: Ctx, RawQuery(raw): RawQuery) -> ApiResult<Json<
         "GROUP BY d.branch_id ORDER BY d.branch_id",
     )
     .await?;
-    let pending = scoped(
+    // The three counts in one query: each round trip to the database costs.
+    let counts = scoped(
         &mut ctx,
-        "to_jsonb(count(*))",
-        |qb| {
-            qb.push(" JOIN app.punch_reviews r ON r.employee_id = e.id AND r.state = 'pending'");
-        },
+        "jsonb_build_object(
+            'punch_reviews', coalesce(sum((SELECT count(*) FROM app.punch_reviews r WHERE r.employee_id = e.id AND r.state = 'pending')), 0),
+            'regularisations', coalesce(sum((SELECT count(*) FROM app.regularisation_requests q
+                                             WHERE q.employee_id = e.id AND q.state IN ('pending', 'escalated'))), 0),
+            'offline', (SELECT count(*) FROM app.devices WHERE state = 'active' AND NOT is_online))",
+        |_| {},
         "",
     )
     .await?;
-    let requests = scoped(
-        &mut ctx,
-        "to_jsonb(count(*))",
-        |qb| {
-            qb.push(" JOIN app.regularisation_requests q ON q.employee_id = e.id AND q.state IN ('pending', 'escalated')");
-        },
-        "",
-    )
-    .await?;
-    let offline: i64 = sqlx::query_scalar("SELECT count(*) FROM app.devices WHERE state = 'active' AND NOT is_online").fetch_one(&mut *ctx.tx).await?;
     ctx.commit().await?;
+    let c = counts.first().cloned().unwrap_or_default();
     Ok(Json(json!({
         "date": day,
         "branches": branches,
-        "pending_approvals": { "punch_reviews": pending.first().cloned().unwrap_or(json!(0)), "regularisations": requests.first().cloned().unwrap_or(json!(0)) },
-        "devices_offline": offline,
+        "pending_approvals": { "punch_reviews": c["punch_reviews"], "regularisations": c["regularisations"] },
+        "devices_offline": c["offline"],
     })))
 }

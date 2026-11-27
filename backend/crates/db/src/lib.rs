@@ -19,12 +19,11 @@ pub async fn begin_tenant(
     org_id: Uuid,
     user_id: Option<Uuid>,
 ) -> Result<Transaction<'static, Postgres>, sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    sqlx::query("SELECT set_config('app.org_id', $1, true), set_config('app.user_id', $2, true)")
-        .bind(org_id.to_string())
-        .bind(user_id.map(|u| u.to_string()).unwrap_or_default())
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("SET LOCAL ROLE app_api").execute(&mut *tx).await?;
-    Ok(tx)
+    // One round trip instead of three: the dev database is ~400 ms away. The ids are typed Uuids,
+    // so formatting them into the SQL cannot inject anything.
+    let user = user_id.map(|u| u.to_string()).unwrap_or_default();
+    pool.begin_with(format!(
+        "BEGIN; SET LOCAL app.org_id = '{org_id}'; SET LOCAL app.user_id = '{user}'; SET LOCAL ROLE app_api"
+    ))
+    .await
 }

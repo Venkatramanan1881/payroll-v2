@@ -12,7 +12,13 @@ async fn main() -> anyhow::Result<()> {
 
     let url = std::env::var("DATABASE_URL").context("DATABASE_URL is not set")?;
     // Lazy: the server starts even if the database is briefly unreachable; /health/ready reports it.
-    let pool = PgPoolOptions::new().max_connections(10).connect_lazy(&url)?;
+    // No ping before each request (a whole round trip); a dead connection fails one request and is dropped.
+    // min_connections keeps warm connections, whose prepared statements are cached, instead of reconnecting.
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .min_connections(4)
+        .test_before_acquire(false)
+        .connect_lazy(&url)?;
     let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET is not set")?;
     anyhow::ensure!(jwt_secret.len() >= 32, "JWT_SECRET must be at least 32 characters");
     let totp_secret = std::env::var("TOTP_ENCRYPTION_KEY").context("TOTP_ENCRYPTION_KEY is not set")?;

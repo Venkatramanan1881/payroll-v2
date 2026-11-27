@@ -2,6 +2,17 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, ApiError, cache, Query } from "./api";
 
+// Same GET already on its way (two components, or React mounting twice in dev): share it instead of sending again.
+const inflight = new Map<string, Promise<unknown>>();
+function shared<T>(key: string, get: () => Promise<T>): Promise<T> {
+  let p = inflight.get(key) as Promise<T> | undefined;
+  if (!p) {
+    p = get().finally(() => inflight.delete(key));
+    inflight.set(key, p);
+  }
+  return p;
+}
+
 /** GET a route; reload() refetches. Pass null to skip. Revisits show the cached result at once and refresh quietly. */
 export function useApi<T = any>(path: string | null, query?: Query) {
   const key = path ? path + JSON.stringify(query ?? {}) : null;
@@ -10,7 +21,8 @@ export function useApi<T = any>(path: string | null, query?: Query) {
   const [loading, setLoading] = useState(!!key && !cache.has(key));
   // Only the latest request may land: an older, slower response must not overwrite newer data or a user's edits.
   const seq = useRef(0);
-  const load = useCallback(async () => {
+  // fresh: reload() after a write must not pick up a request sent before it.
+  const load = useCallback(async (fresh = true) => {
     if (!path || !key) return;
     const n = ++seq.current;
     const hit = cache.has(key);
@@ -18,7 +30,7 @@ export function useApi<T = any>(path: string | null, query?: Query) {
     setLoading(!hit);
     setError(null);
     try {
-      const d = await api<T>(path, { query });
+      const d = fresh ? await api<T>(path, { query }) : await shared(key, () => api<T>(path, { query }));
       cache.set(key, d);
       if (n === seq.current) setState(d);
     } catch (e) {
@@ -29,7 +41,7 @@ export function useApi<T = any>(path: string | null, query?: Query) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   useEffect(() => {
-    load();
+    load(false);
   }, [load]);
   const setData = useCallback(
     (v: T | null | ((p: T | null) => T | null)) =>
@@ -40,7 +52,8 @@ export function useApi<T = any>(path: string | null, query?: Query) {
       }),
     [key],
   );
-  return { data, error, loading, reload: load, setData };
+  const reload = useCallback(() => load(true), [load]);
+  return { data, error, loading, reload, setData };
 }
 
 /** Runs a write and keeps its error for display. */

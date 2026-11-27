@@ -77,14 +77,17 @@ impl FromRequestParts<AppState> for Ctx {
 
         let mut tx = db::begin_tenant(&state.pool, claims.org, Some(claims.sub)).await?;
 
-        let row = sqlx::query(
+        // Session check and permissions in one query: each round trip to the database costs.
+        let row = sqlx::query(&format!(
             "SELECT u.state::text AS user_state, u.employee_id, o.state::text AS org_state,
-                    (SELECT c.state::text FROM app.user_credentials c WHERE c.user_id = u.id) AS cred_state
+                    (SELECT c.state::text FROM app.user_credentials c WHERE c.user_id = u.id) AS cred_state,
+                    ({}) AS grants
              FROM app.user_sessions s
              JOIN app.users u ON u.id = s.user_id
              JOIN app.organisations o ON o.id = u.org_id
              WHERE s.id = $1 AND s.user_id = $2 AND s.revoked_at IS NULL AND s.expires_at > now()",
-        )
+            grants_sql("$2")
+        ))
         .bind(claims.sid)
         .bind(claims.sub)
         .fetch_optional(&mut *tx)
@@ -104,7 +107,7 @@ impl FromRequestParts<AppState> for Ctx {
             return Err(AppError::new(403, "organisation_suspended", "Organisation suspended", "Only viewing is allowed").into());
         }
 
-        let grants = load_grants(&mut tx, claims.sub).await?;
+        let grants = merge_grants(row.get::<sqlx::types::Json<Vec<GrantRow>>, _>("grants").0);
 
         Ok(Ctx {
             tx,
@@ -121,33 +124,50 @@ impl FromRequestParts<AppState> for Ctx {
 
 /// The user's permissions with their merged scope, read from the database (never from the token).
 async fn load_grants(tx: &mut Transaction<'static, Postgres>, user: Uuid) -> ApiResult<HashMap<String, Scope>> {
-    let rows = sqlx::query(
-        "SELECT rp.permission_code, r.builtin_key, ur.scope_kind::text AS scope_kind,
-                coalesce(array_agg(si.branch_id) FILTER (WHERE si.branch_id IS NOT NULL), '{}') AS branches,
-                coalesce(array_agg(si.department_id) FILTER (WHERE si.department_id IS NOT NULL), '{}') AS departments
-         FROM app.user_roles ur
-         JOIN app.roles r ON r.id = ur.role_id AND r.state = 'active'
-         JOIN app.role_permissions rp ON rp.role_id = r.id
-         LEFT JOIN app.user_role_scope_items si ON si.user_role_id = ur.id
-         WHERE ur.user_id = $1
-         GROUP BY ur.id, rp.permission_code, r.builtin_key, ur.scope_kind",
+    let rows: sqlx::types::Json<Vec<GrantRow>> =
+        sqlx::query_scalar(&grants_sql("$1")).bind(user).fetch_one(&mut **tx).await?;
+    Ok(merge_grants(rows.0))
+}
+
+#[derive(Deserialize)]
+struct GrantRow {
+    permission_code: String,
+    builtin_key: Option<String>,
+    scope_kind: String,
+    branches: Vec<Uuid>,
+    departments: Vec<Uuid>,
+}
+
+/// One JSON array of the user's grant rows; `user` is the placeholder holding the user id.
+fn grants_sql(user: &str) -> String {
+    format!(
+        "SELECT coalesce(jsonb_agg(g), '[]') FROM (
+           SELECT rp.permission_code, r.builtin_key, ur.scope_kind::text AS scope_kind,
+                  coalesce(array_agg(si.branch_id) FILTER (WHERE si.branch_id IS NOT NULL), '{{}}') AS branches,
+                  coalesce(array_agg(si.department_id) FILTER (WHERE si.department_id IS NOT NULL), '{{}}') AS departments
+           FROM app.user_roles ur
+           JOIN app.roles r ON r.id = ur.role_id AND r.state = 'active'
+           JOIN app.role_permissions rp ON rp.role_id = r.id
+           LEFT JOIN app.user_role_scope_items si ON si.user_role_id = ur.id
+           WHERE ur.user_id = {user}
+           GROUP BY ur.id, rp.permission_code, r.builtin_key, ur.scope_kind) g"
     )
-    .bind(user)
-    .fetch_all(&mut **tx)
-    .await?;
+}
+
+fn merge_grants(rows: Vec<GrantRow>) -> HashMap<String, Scope> {
     let mut grants: HashMap<String, Scope> = HashMap::new();
     for r in rows {
-        let s = grants.entry(r.get("permission_code")).or_default();
+        let s = grants.entry(r.permission_code).or_default();
         // Built-in Manager and Employee roles are limited by who they are, not by a scope setting.
-        match (r.get::<Option<String>, _>("builtin_key").as_deref(), r.get::<String, _>("scope_kind").as_str()) {
+        match (r.builtin_key.as_deref(), r.scope_kind.as_str()) {
             (Some("manager"), _) => s.chain = true,
             (Some("employee"), _) => s.own = true,
             (_, "organisation") => s.org = true,
-            (_, "branches") => s.branches.extend(r.get::<Vec<Uuid>, _>("branches")),
-            _ => s.departments.extend(r.get::<Vec<Uuid>, _>("departments")),
+            (_, "branches") => s.branches.extend(r.branches),
+            _ => s.departments.extend(r.departments),
         }
     }
-    Ok(grants)
+    grants
 }
 
 impl Ctx {

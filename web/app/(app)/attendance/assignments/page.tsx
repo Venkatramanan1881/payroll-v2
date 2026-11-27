@@ -30,7 +30,7 @@ export default function PolicyAssignments() {
   const name = (opts: { value: string; label: string }[], id: string) => opts.find((o) => o.value === id)?.label ?? id.slice(0, 8);
   return (
     <>
-      <PageHead title="Policy assignments" sub="Which policy set applies to a branch, department, category or employee type. An employee-level choice beats these.">
+      <PageHead title="Policy assignments">
         <Button kind="main" icon="add" onClick={() => setCreating(true)}>Assign</Button>
       </PageHead>
       <div className="filters">

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, Code, ErrorBox, Field, fmtDate, fmtTime, Modal, PhoneInput, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, Code, ErrorBox, Field, fmtDate, fmtTime, Modal, MultiSelect, PhoneInput, Pill, ReasonDialog, Select, Table } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi, useCan } from "@/lib/hooks";
 import { useList, useShifts } from "@/lib/lookups";
@@ -412,11 +412,7 @@ export function CustomFieldsTab({ e, reload }: P) {
               ) : d.field_type === "dropdown" ? (
                 <Select disabled={ro} value={x ?? ""} onChange={(s) => set(d.id, s)} options={active.map((o: string) => ({ value: o, label: o }))} placeholder="—" />
               ) : d.field_type === "multiple_choice" ? (
-                <select multiple disabled={ro} value={x ?? []} onChange={(ev) => set(d.id, Array.from(ev.target.selectedOptions, (o) => o.value))}>
-                  {active.map((o: string) => (
-                    <option key={o}>{o}</option>
-                  ))}
-                </select>
+                <MultiSelect disabled={ro} value={x ?? []} onChange={(v) => set(d.id, v)} options={active.map((o: string) => ({ value: o, label: o }))} placeholder="—" />
               ) : (
                 <input
                   disabled={ro}
@@ -461,14 +457,8 @@ export function AttendanceTab({ e, reload }: P) {
             <Field label="Default shift" name="default_shift_id" error={sh.error}>
               <Select value={s.default_shift_id} onChange={(v) => setS({ ...s, default_shift_id: v })} options={shifts.options} placeholder="— None —" />
             </Field>
-            <Field label="Allowed shifts" name="allowed_shift_ids" error={sh.error} hint="Ctrl/Cmd-click for several">
-              <select multiple value={s.allowed_shift_ids} onChange={(x) => setS({ ...s, allowed_shift_ids: Array.from(x.target.selectedOptions, (o) => o.value) })}>
-                {shifts.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            <Field label="Allowed shifts" name="allowed_shift_ids" error={sh.error}>
+              <MultiSelect value={s.allowed_shift_ids} onChange={(v) => setS({ ...s, allowed_shift_ids: v })} options={shifts.options} placeholder="Choose…" />
             </Field>
             <Field label="Reason" name="reason" error={sh.error}>
               <input value={s.reason} onChange={(x) => setS({ ...s, reason: x.target.value })} />

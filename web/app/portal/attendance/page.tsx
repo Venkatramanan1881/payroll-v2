@@ -25,7 +25,7 @@ export default function MyAttendance() {
 
   return (
     <>
-      <PageHead title="My attendance" sub="Up to 62 days at a time.">
+      <PageHead title="My attendance">
         {canAsk && <Button kind="main" icon="edit_calendar" onClick={() => setAsk("")}>Request a correction</Button>}
       </PageHead>
       <div className="filters">

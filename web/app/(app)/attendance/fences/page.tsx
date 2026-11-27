@@ -17,7 +17,7 @@ export default function Fences() {
   const toggle = (f: Fence) => act.run(() => api(`/attendance/fences/${f.id}/${f.state === "active" ? "deactivate" : "activate"}`, { method: "POST", version: f.version })).then((r) => r && list.reload());
   return (
     <>
-      <PageHead title="Geo-fences" sub="Up to 10 per branch. A new fence starts as draft; activate it to use it for app punches.">
+      <PageHead title="Geo-fences">
         {branch && <Button kind="main" icon="add" onClick={() => setEdit({ name: "", radius_m: 200 })}>New fence</Button>}
       </PageHead>
       <div className="filters">

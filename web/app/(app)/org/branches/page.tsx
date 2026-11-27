@@ -9,7 +9,7 @@ export default function Branches() {
   const [left, setLeft] = useState<Emp[] | null>(null);
   return (
     <>
-      <PageHead title="Branches" sub="Locations employees belong to. Short codes appear in employee codes." />
+      <PageHead title="Branches" />
       <ItemsPage
         path="/org/branches"
         codeKey="short_code"

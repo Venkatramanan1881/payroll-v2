@@ -140,6 +140,46 @@ export function PhoneInput({ value, onChange, ...p }: { value?: string | null; o
   );
 }
 
+/** File chooser (replaces the browser's button): click or drop a file; shows the chosen name and size. */
+export function FilePick({ file, onPick, accept, hint }: { file: File | null; onPick: (f: File | null) => void; accept?: string; hint?: string }) {
+  const [over, setOver] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!file && input.current) input.current.value = "";
+  }, [file]);
+  const size = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+  return (
+    <label
+      className={`file-pick${over ? " over" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setOver(false);
+        const f = e.dataTransfer.files[0];
+        if (f) onPick(f);
+      }}
+    >
+      <input ref={input} type="file" accept={accept} onChange={(e) => onPick(e.target.files?.[0] ?? null)} />
+      <span className="tile"><Icon name={file ? "description" : "upload_file"} /></span>
+      <span className="t">
+        <b>{file ? file.name : "Choose a file or drop it here"}</b>
+        <small>{file ? size(file.size) : hint ?? accept?.split(",").join(", ")}</small>
+      </span>
+      {file ? (
+        <button type="button" className="icon-btn" aria-label="Remove file" onClick={(e) => { e.preventDefault(); onPick(null); }}>
+          <Icon name="close" />
+        </button>
+      ) : (
+        <span className="btn ghost">Browse</span>
+      )}
+    </label>
+  );
+}
+
 export function Empty({ children = "Nothing here yet." }: { children?: ReactNode }) {
   return (
     <div className="empty">
@@ -176,25 +216,224 @@ export function Field({
 }
 
 export type Opt = { value: string; label: string };
+
+/** Option text as shown: underscores become spaces and the first letter is a capital ("half_day" → "Half day"). */
+export const optLabel = (s: string) => {
+  const t = s.replace(/_/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+
+type DropProps = {
+  options: Opt[];
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  id?: string;
+  "aria-label"?: string;
+};
+
+/**
+ * Custom dropdown (replaces the browser <select>). The list is position: fixed under the trigger so cards, tables
+ * and modals never clip it, and it stays inside the trigger's DOM so it also works within a <dialog>.
+ */
+function Dropdown({
+  options,
+  placeholder,
+  disabled,
+  className,
+  style,
+  id,
+  multi,
+  isOn,
+  pick,
+  shown,
+  ...aria
+}: DropProps & { multi: boolean; isOn: (v: string) => boolean; pick: (v: string) => void; shown: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [hi, setHi] = useState(0);
+  const [pos, setPos] = useState<{ left: number; top: number; width: number; up: boolean }>();
+  const wrap = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const searchable = options.length > 8;
+  const items = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    return k ? options.filter((o) => o.label.toLowerCase().includes(k)) : options;
+  }, [options, q]);
+
+  const place = () => {
+    const r = btn.current?.getBoundingClientRect();
+    if (!r) return;
+    const up = r.bottom + 300 > window.innerHeight && r.top > 300;
+    setPos({ left: r.left, top: up ? r.top - 6 : r.bottom + 6, width: r.width, up });
+  };
+  const show = () => {
+    if (disabled) return;
+    place();
+    setQ("");
+    setHi(Math.max(0, options.findIndex((o) => isOn(o.value))));
+    setOpen(true);
+  };
+  const close = (focus = true) => {
+    setOpen(false);
+    if (focus) btn.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && close(false);
+    // Any scroll outside the list moves the trigger: close rather than float in the wrong place.
+    const scroll = (e: Event) => !list.current?.contains(e.target as Node) && close(false);
+    document.addEventListener("mousedown", down);
+    window.addEventListener("scroll", scroll, true);
+    window.addEventListener("resize", place);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      window.removeEventListener("scroll", scroll, true);
+      window.removeEventListener("resize", place);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  useEffect(() => {
+    if (open) list.current?.querySelector<HTMLElement>(`[data-i="${hi}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [hi, open]);
+
+  const choose = (v: string) => {
+    pick(v);
+    if (!multi) close();
+  };
+  const key = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) {
+        e.preventDefault();
+        show();
+      }
+      return;
+    }
+    if (e.key === "Escape" || e.key === "Tab") {
+      if (e.key === "Escape") e.preventDefault();
+      close(e.key === "Escape");
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHi((h) => Math.min(items.length - 1, h + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHi((h) => Math.max(0, h - 1));
+    } else if (e.key === "Enter" || (e.key === " " && !searchable)) {
+      e.preventDefault();
+      if (items[hi]) choose(items[hi].value);
+    }
+  };
+
+  return (
+    <div ref={wrap} className={`dd${open ? " open" : ""}${className ? " " + className : ""}`} style={style} onKeyDown={key}>
+      <button
+        ref={btn}
+        id={id}
+        type="button"
+        className="dd-btn"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={aria["aria-label"]}
+        // Inside a <label>, a click on the list would re-click this button; only real clicks on it toggle.
+        onClick={(e) => {
+          e.preventDefault();
+          if (open) close();
+          else show();
+        }}
+      >
+        <span className="dd-val">{shown}</span>
+        <Icon name="expand_more" />
+      </button>
+      {open && pos && (
+        <div
+          className={`dd-pop${pos.up ? " up" : ""}`}
+          style={{ left: pos.left, top: pos.top, minWidth: pos.width }}
+          onClick={(e) => e.preventDefault()}
+        >
+          {searchable && (
+            <div className="dd-search">
+              <Icon name="search" />
+              <input
+                autoFocus
+                value={q}
+                placeholder="Search…"
+                aria-label="Search options"
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setHi(0);
+                }}
+              />
+            </div>
+          )}
+          <ul ref={list} role="listbox" aria-multiselectable={multi || undefined} tabIndex={-1}>
+            {placeholder !== undefined && !multi && !q && (
+              <li role="option" aria-selected={isOn("")} className={`dd-opt muted${isOn("") ? " on" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => choose("")}>
+                {placeholder}
+              </li>
+            )}
+            {items.map((o, i) => (
+              <li
+                key={o.value}
+                data-i={i}
+                role="option"
+                aria-selected={isOn(o.value)}
+                className={`dd-opt${isOn(o.value) ? " on" : ""}${i === hi ? " hi" : ""}`}
+                onMouseEnter={() => setHi(i)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => choose(o.value)}
+              >
+                {multi && <span className="dd-check"><Icon name={isOn(o.value) ? "check_box" : "check_box_outline_blank"} fill={isOn(o.value)} /></span>}
+                <span>{optLabel(o.label)}</span>
+                {!multi && isOn(o.value) && <Icon name="check" />}
+              </li>
+            ))}
+            {!items.length && <li className="dd-none muted">No matches</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Select({
   value,
   onChange,
-  options,
-  placeholder,
   ...p
-}: { value: string | undefined | null; onChange: (v: string) => void; options: Opt[]; placeholder?: string } & Omit<
-  React.SelectHTMLAttributes<HTMLSelectElement>,
-  "onChange" | "value"
->) {
+}: { value: string | undefined | null; onChange: (v: string) => void } & DropProps) {
+  const v = value ?? "";
+  const cur = p.options.find((o) => o.value === v);
   return (
-    <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} {...p}>
-      {placeholder !== undefined && <option value="">{placeholder}</option>}
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <Dropdown
+      {...p}
+      multi={false}
+      isOn={(x) => x === v}
+      pick={onChange}
+      shown={cur ? optLabel(cur.label) : <span className="muted">{p.placeholder || "Select…"}</span>}
+    />
+  );
+}
+
+/** Pick several; shows the first picks and a count. */
+export function MultiSelect({ value, onChange, ...p }: { value: string[]; onChange: (v: string[]) => void } & DropProps) {
+  const names = p.options.filter((o) => value.includes(o.value)).map((o) => optLabel(o.label));
+  return (
+    <Dropdown
+      {...p}
+      multi
+      isOn={(x) => value.includes(x)}
+      pick={(x) => onChange(value.includes(x) ? value.filter((y) => y !== x) : [...value, x])}
+      shown={
+        names.length ? (
+          names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`
+        ) : (
+          <span className="muted">{p.placeholder || "Select…"}</span>
+        )
+      }
+    />
   );
 }
 
@@ -393,9 +632,12 @@ export function Table<T>({ rows, cols, onRow, empty, name = "export" }: { rows: 
             <div className="tbl-foot">
               <div className="row">
                 <span>Showing {(at - 1) * size + 1}–{Math.min(at * size, list.length)} of {list.length}</span>
-                <select value={size} onChange={(e) => { setSize(+e.target.value); setPage(1); }} aria-label="Rows per page">
-                  {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
-                </select>
+                <Select
+                  value={String(size)}
+                  onChange={(v) => { setSize(+v); setPage(1); }}
+                  options={[10, 25, 50, 100].map((n) => ({ value: String(n), label: `${n} / page` }))}
+                  aria-label="Rows per page"
+                />
               </div>
               <div className="row">
                 <Button icon="chevron_left" disabled={at <= 1} onClick={() => setPage(at - 1)}>Prev</Button>

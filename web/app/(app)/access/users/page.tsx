@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, Modal, Opt, PageHead, Pill, ReasonDialog, Select, Table, Tabs } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, Modal, MultiSelect, Opt, PageHead, Pill, ReasonDialog, Select, Table, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 import { useBranches, useList } from "@/lib/lookups";
@@ -24,11 +24,7 @@ function Grants({ value, onChange, roles, employeeUser }: { value: Grant[]; onCh
     .map((r) => ({ value: r.id, label: r.name }));
   const set = (i: number, g: Partial<Grant>) => onChange(value.map((x, j) => (j === i ? { ...x, ...g } : x)));
   const multi = (opts: Opt[], v: string[], f: (v: string[]) => void) => (
-    <select multiple size={4} value={v} onChange={(e) => f(Array.from(e.target.selectedOptions, (o) => o.value))}>
-      {opts.map((o) => (
-        <option key={o.value} value={o.value}>{o.label}</option>
-      ))}
-    </select>
+    <MultiSelect options={opts} value={v} onChange={f} placeholder="Choose…" />
   );
   return (
     <div className="stack">
@@ -91,7 +87,7 @@ export default function Users() {
 
   return (
     <>
-      <PageHead title="Users" sub="Who can sign in to the admin app, with which roles and scope.">
+      <PageHead title="Users">
         <Button kind="main" icon="person_add" onClick={() => { act.setError(null); setForm({ email: "", display_name: "" }); setGrants([]); setInvite(true); }}>
           Invite admin
         </Button>

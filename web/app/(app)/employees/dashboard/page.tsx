@@ -43,7 +43,7 @@ export default function EmployeeDashboard() {
   ];
   return (
     <>
-      <PageHead title="Employee dashboard" sub="Headcount across everyone you can see">
+      <PageHead title="Employee dashboard">
         {can("employee.create") && (
           <Link className="btn main" href="/employees/new">
             <Icon name="person_add" /> Add employee

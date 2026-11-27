@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, Modal, Opt, PageHead, Pill, Select, Table, Tabs } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, Modal, MultiSelect, Opt, PageHead, Pill, Select, Table, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi, useCan } from "@/lib/hooks";
 import { useBranches, useEmployeeOptions, useList } from "@/lib/lookups";
@@ -29,17 +29,10 @@ const cycle = (g: Group) =>
         ? `Anchor ${g.cycle_anchor}`
         : "Daily";
 
-/** Values from a <select multiple>. */
-const picked = (e: React.ChangeEvent<HTMLSelectElement>) => Array.from(e.target.selectedOptions, (o) => o.value);
-
 function Multi({ label, options, value, onChange }: { label: string; options: Opt[]; value: string[]; onChange: (v: string[]) => void }) {
   return (
-    <Field label={label} hint="Ctrl/Cmd-click to pick several">
-      <select multiple size={Math.min(6, Math.max(3, options.length))} value={value} onChange={(e) => onChange(picked(e))}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+    <Field label={label}>
+      <MultiSelect options={options} value={value} onChange={onChange} placeholder="Choose…" />
     </Field>
   );
 }
@@ -164,7 +157,7 @@ export default function PayrollGroups() {
 
   return (
     <>
-      <PageHead title="Payroll groups" sub="Employees paid on the same cycle.">
+      <PageHead title="Payroll groups">
         {manage && <Button kind="main" icon="add" onClick={() => open("new")}>New group</Button>}
       </PageHead>
       <ErrorBox error={list.error} />

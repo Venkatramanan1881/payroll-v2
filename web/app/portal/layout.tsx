@@ -82,7 +82,7 @@ function PortalShell({ children }: { children: React.ReactNode }) {
         </Link>
         <AccountMenu name={access.user.name} sub={access.org.name} />
       </header>
-      <main className="content" style={{ maxWidth: 1040 }}>{children}</main>
+      <main className="content">{children}</main>
     </div>
   );
 }

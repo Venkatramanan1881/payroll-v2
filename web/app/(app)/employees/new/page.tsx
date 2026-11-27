@@ -35,7 +35,7 @@ export default function NewEmployee() {
   const err = act.error;
   return (
     <>
-      <PageHead title="New employee" sub="Mandatory fields depend on your organisation's settings">
+      <PageHead title="New employee">
         <Button onClick={() => router.back()}>Cancel</Button>
         <Button kind="main" onClick={save} disabled={act.busy}>
           Create employee

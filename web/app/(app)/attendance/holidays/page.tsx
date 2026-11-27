@@ -17,7 +17,7 @@ export default function Holidays() {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <>
-      <PageHead title="Holiday calendars" sub="One calendar per branch per year.">
+      <PageHead title="Holiday calendars">
         {manage && <Button kind="main" icon="add" onClick={() => setCreating(true)}>New calendar</Button>}
       </PageHead>
       <div className="filters">

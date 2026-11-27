@@ -29,7 +29,7 @@ export default function Regularisations() {
   const set = (k: string) => (v: string) => setF({ ...f, [k]: v });
   return (
     <>
-      <PageHead title="Regularisations" sub="Requests to fix missed or wrong punches, decided by the reporting manager and then HR.">
+      <PageHead title="Regularisations">
         {can("attendance.regularisation.request") && <Button kind="main" icon="add" onClick={() => setRaising(true)}>Raise on behalf</Button>}
       </PageHead>
       <div className="filters">

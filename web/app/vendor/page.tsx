@@ -140,7 +140,6 @@ export default function Vendor() {
       <main className="content">
         <PageHead
           title="Organisations"
-          sub="Customer companies, their plan and employee limit"
         >
           <Button
             icon="add"

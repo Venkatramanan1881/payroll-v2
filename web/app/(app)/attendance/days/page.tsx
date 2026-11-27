@@ -21,7 +21,7 @@ export default function Days() {
   };
   return (
     <>
-      <PageHead title="Daily attendance" sub="Calculated by the server from punches, shifts and policy. At most 62 days per view." />
+      <PageHead title="Daily attendance" />
       <div className="filters">
         <Field label="From"><input type="date" value={f.from} onChange={(e) => set("from")(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={f.to} onChange={(e) => set("to")(e.target.value)} /></Field>

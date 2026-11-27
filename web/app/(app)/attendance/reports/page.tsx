@@ -26,7 +26,7 @@ export default function Reports() {
   const rep = useApi<{ columns: string[]; rows: Record<string, unknown>[] }>(`/attendance/reports/${code}`, { from, to, branch_id: branch });
   return (
     <>
-      <PageHead title="Attendance reports" sub="At most 62 days per run." />
+      <PageHead title="Attendance reports" />
       <div className="filters">
         <Field label="Report"><Select value={code} onChange={setCode} options={REPORTS} /></Field>
         <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>

@@ -1,6 +1,6 @@
 "use client";
-import { useRef } from "react";
-import { Button, Card, ErrorBox, fmtTime, PageHead, Pill, Table } from "@/components/ui";
+import { useState } from "react";
+import { Button, Card, ErrorBox, FilePick, fmtTime, PageHead, Pill, Table } from "@/components/ui";
 import { api, download } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 
@@ -10,15 +10,15 @@ type Imp = { id: string; state: string; total_rows: number; applied_count: numbe
 export default function Imports() {
   const list = useApi<{ items: Imp[] }>("/employee-imports");
   const act = useAction();
-  const file = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
   const upload = () => {
-    const f = file.current?.files?.[0];
+    const f = file;
     if (!f) return;
     const fd = new FormData();
     fd.append("file", f);
     act.run(() => api("/employee-imports", { body: fd })).then((r) => {
       if (!r) return;
-      if (file.current) file.current.value = "";
+      setFile(null);
       list.reload();
     });
   };
@@ -29,14 +29,14 @@ export default function Imports() {
     });
   return (
     <>
-      <PageHead title="Bulk import" sub="Add or update employees from a spreadsheet (.xlsx or .csv, up to 5 MB / 5,000 rows)">
+      <PageHead title="Bulk import">
         <Button icon="download" onClick={() => act.run(() => download("/employee-imports/template", "employee-import-template.xlsx"))}>Template</Button>
         <Button icon="refresh" onClick={list.reload}>Refresh</Button>
       </PageHead>
       <Card title="Upload">
         <div className="row">
-          <input ref={file} type="file" accept=".xlsx,.csv" style={{ maxWidth: 360 }} />
-          <Button kind="main" onClick={upload} disabled={act.busy}>Upload</Button>
+          <FilePick file={file} onPick={setFile} accept=".xlsx,.csv" hint="Excel (.xlsx) or CSV file" />
+          <Button kind="main" onClick={upload} disabled={act.busy || !file}>Upload</Button>
         </div>
         <ErrorBox error={act.error} />
       </Card>

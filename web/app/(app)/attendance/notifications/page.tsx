@@ -31,7 +31,7 @@ export default function NotificationSettings() {
   };
   return (
     <>
-      <PageHead title="Notification settings" sub="Switch an event off per channel and recipient. Unset means on. Email is stored but not sent yet.">
+      <PageHead title="Notification settings">
         <Button kind="main" disabled={act.busy || !data.data} onClick={save}>Save</Button>
       </PageHead>
       <ErrorBox error={data.error ?? act.error} />

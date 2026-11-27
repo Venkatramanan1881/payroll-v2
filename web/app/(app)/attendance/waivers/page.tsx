@@ -29,7 +29,7 @@ export default function WaiversAndOutages() {
     });
   return (
     <>
-      <PageHead title="Waivers & outages" sub="Waive late or early marks for a day (e.g. transport strike), or fill a device outage from shift times.">
+      <PageHead title="Waivers & outages">
         {waive && <Button kind="main" icon="add" onClick={() => setCreating(true)}>New waiver</Button>}
       </PageHead>
       {waive && (

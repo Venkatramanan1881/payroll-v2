@@ -37,7 +37,7 @@ export default function Lists() {
     });
   return (
     <>
-      <PageHead title="Departments & lists" sub="Reference lists used on every employee record.">
+      <PageHead title="Departments & lists">
         {can("org.lists.manage") && (
           <Button icon="auto_awesome" onClick={() => { act.setError(null); setDone(null); setTpl(true); }}>
             Apply sector template

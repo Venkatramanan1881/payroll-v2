@@ -32,7 +32,7 @@ export default function Exceptions() {
   const items = list.data?.items;
   return (
     <>
-      <PageHead title="Exceptions" sub="Days the calculation flagged for a look: missed punches, flagged punches, long sessions">
+      <PageHead title="Exceptions">
         {can("attendance.punch.review") && (
           <Link className="btn" href="/attendance/reviews">
             <Icon name="rule" /> Punch reviews

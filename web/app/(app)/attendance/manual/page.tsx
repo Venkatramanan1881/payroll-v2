@@ -33,7 +33,7 @@ export default function ManualAttendance() {
     });
   return (
     <>
-      <PageHead title="Manual attendance" sub="For days a device failed. Each entry becomes manual punches at the branch's local time.">
+      <PageHead title="Manual attendance">
         <Button kind="main" disabled={!branch || !entries.length || act.busy} onClick={submit}>Save {entries.length || ""} entries</Button>
       </PageHead>
       <div className="filters">

@@ -42,7 +42,7 @@ export default function Employees() {
 
   return (
     <>
-      <PageHead title="Employee master" sub="Everyone you can see in your scope">
+      <PageHead title="Employee master">
         {can("employee.create") && (
           <Link className="btn main" href="/employees/new">
             <Icon name="person_add" /> Add employee

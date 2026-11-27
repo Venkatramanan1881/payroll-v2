@@ -14,7 +14,7 @@ export default function PolicySets() {
   const [creating, setCreating] = useState(false);
   return (
     <>
-      <PageHead title="Policy sets" sub="Attendance rules (grace, late marks, breaks, weekly offs, regularisation…) as dated versions.">
+      <PageHead title="Policy sets">
         {manage && <Button kind="main" icon="add" onClick={() => setCreating(true)}>New policy set</Button>}
       </PageHead>
       <ErrorBox error={list.error} />

@@ -28,7 +28,7 @@ export default function Contractors() {
   const [workers, setWorkers] = useState<Item | null>(null);
   return (
     <>
-      <PageHead title="Contractors" sub="Agencies that supply contract workers." />
+      <PageHead title="Contractors" />
       <ItemsPage
         path="/org/contractors"
         noun="contractor"

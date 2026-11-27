@@ -37,7 +37,7 @@ export default function StatusRequests() {
   );
   return (
     <>
-      <PageHead title="Status requests" sub="Joining, notice, long leave and exit changes awaiting a decision" />
+      <PageHead title="Status requests" />
       <div className="filters">
         <Select value={state} onChange={setState} options={STATES} placeholder="Any state" />
         <label className="check">

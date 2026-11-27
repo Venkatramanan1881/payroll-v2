@@ -36,7 +36,7 @@ export default function Punches() {
     });
   return (
     <>
-      <PageHead title="Punches" sub="Raw punches are evidence and never change; fixes are recorded as adjudications." />
+      <PageHead title="Punches" />
       <div className="filters">
         <Field label="From"><input type="date" value={f.from} onChange={(e) => set("from")(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={f.to} onChange={(e) => set("to")(e.target.value)} /></Field>

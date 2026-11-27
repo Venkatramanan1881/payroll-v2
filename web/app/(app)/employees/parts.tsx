@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Field, Select } from "@/components/ui";
+import { Field, MultiSelect, Select } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useBranches, useContractors, useEmployeeOptions, useList, usePayrollGroups } from "@/lib/lookups";
 
@@ -29,18 +29,8 @@ export function JobFields({ value, onChange, error, prefix }: { value: Job; onCh
   return (
     <div className="grid2">
       {sel("master_branch_id", "Master branch", branches.options)}
-      <Field label="Allowed branches" name={prefix + "allowed_branch_ids"} error={error} hint="Ctrl/Cmd-click for several">
-        <select
-          multiple
-          value={(value.allowed_branch_ids as string[]) ?? []}
-          onChange={(e) => onChange("allowed_branch_ids", Array.from(e.target.selectedOptions, (o) => o.value))}
-        >
-          {branches.options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+      <Field label="Allowed branches" name={prefix + "allowed_branch_ids"} error={error}>
+        <MultiSelect options={branches.options} value={(value.allowed_branch_ids as string[]) ?? []} onChange={(v) => onChange("allowed_branch_ids", v)} placeholder="Choose…" />
       </Field>
       {sel("department_id", "Department", depts.options)}
       {sel("designation_id", "Designation", desigs.options, true)}

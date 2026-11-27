@@ -26,7 +26,7 @@ export default function PunchReviews() {
     });
   return (
     <>
-      <PageHead title="Punch reviews" sub="Flagged punches waiting for a decision. Your own punches never appear here." />
+      <PageHead title="Punch reviews" />
       <div className="filters">
         <Field label="State"><Select value={state} onChange={setState} options={["pending", "approved", "rejected"].map((s) => ({ value: s, label: s }))} placeholder="Any" /></Field>
         <Field label="Branch"><Select value={branch} onChange={setBranch} options={branches.options} placeholder="Any" /></Field>

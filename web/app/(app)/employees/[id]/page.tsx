@@ -32,7 +32,7 @@ export default function EmployeePage() {
   const props = { e, reload: emp.reload };
   return (
     <>
-      <PageHead title="Employee profile" sub="Personal, job, status and attendance setup for one person">
+      <PageHead title="Employee profile">
         <Link className="btn" href="/employees">
           <Icon name="arrow_back" /> Back to list
         </Link>

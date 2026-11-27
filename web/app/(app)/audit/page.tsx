@@ -52,7 +52,7 @@ export default function Audit() {
 
   return (
     <>
-      <PageHead title="Audit log" sub="Every change, who made it and why. Read-only." />
+      <PageHead title="Audit log" />
       <div className="filters">
         {input("action", "Action (permission code)")}
         {input("target_type", "Target type")}

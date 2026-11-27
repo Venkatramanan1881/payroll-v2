@@ -5,6 +5,7 @@ import { ThemeToggle } from "@/components/Shell";
 import { Button, ErrorBox, Field, Icon, Tabs } from "@/components/ui";
 import { api, tokens } from "@/lib/api";
 import { useAction } from "@/lib/hooks";
+import FluidOrb from "@/components/FluidOrb";
 
 type Who = "admin" | "employee" | "vendor";
 const SUB: Record<Who, string> = {
@@ -41,6 +42,7 @@ export default function Login() {
           </ul>
         </div>
         <footer>© {new Date().getFullYear()} PayLedger</footer>
+        <FluidOrb className="auth-orb" size={440} color="#4f6bff" />
       </section>
 
       <section className="auth-form">

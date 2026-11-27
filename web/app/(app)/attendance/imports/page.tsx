@@ -1,6 +1,6 @@
 "use client";
-import { useRef, useState } from "react";
-import { Button, Card, ErrorBox, fmtTime, PageHead, Pill, Table, Tabs } from "@/components/ui";
+import { useState } from "react";
+import { Button, Card, ErrorBox, FilePick, fmtTime, PageHead, Pill, Table, Tabs } from "@/components/ui";
 import { api, download } from "@/lib/api";
 import { useAction, useApi, useCan } from "@/lib/hooks";
 
@@ -15,7 +15,7 @@ export default function AttendanceImports() {
   const [tab, setTab] = useState<"punch" | "roster">(tabs[0]?.value ?? "punch");
   return (
     <>
-      <PageHead title="Punch & roster imports" sub="Files are processed in the background; a row already applied is skipped if the same file comes again.">
+      <PageHead title="Punch & roster imports">
         <Tabs value={tab} onChange={setTab} tabs={tabs} />
       </PageHead>
       <ImportPanel key={tab} kind={tab} />
@@ -27,15 +27,15 @@ function ImportPanel({ kind }: { kind: "punch" | "roster" }) {
   const base = `/attendance/${kind}-imports`;
   const list = useApi<{ items: Import[] }>(base);
   const act = useAction();
-  const file = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
   const upload = () => {
-    const f = file.current?.files?.[0];
+    const f = file;
     if (!f) return;
     const body = new FormData();
     body.append("file", f);
     act.run(() => api(base, { body })).then((r) => {
       if (r) {
-        if (file.current) file.current.value = "";
+        setFile(null);
         list.reload();
       }
     });
@@ -53,8 +53,8 @@ function ImportPanel({ kind }: { kind: "punch" | "roster" }) {
           </p>
         )}
         <div className="row">
-          <input ref={file} type="file" accept={kind === "punch" ? ".csv" : ".xlsx,.csv"} style={{ maxWidth: 360 }} />
-          <Button kind="main" icon="upload" disabled={act.busy} onClick={upload}>Upload</Button>
+          <FilePick file={file} onPick={setFile} accept={kind === "punch" ? ".csv" : ".xlsx,.csv"} hint={kind === "punch" ? "CSV file" : "Excel (.xlsx) or CSV file"} />
+          <Button kind="main" icon="upload" disabled={act.busy || !file} onClick={upload}>Upload</Button>
           <Button icon="refresh" onClick={list.reload}>Refresh</Button>
         </div>
         <ErrorBox error={act.error} />

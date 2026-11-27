@@ -78,7 +78,7 @@ export default function Roles() {
 
   return (
     <>
-      <PageHead title="Roles & permissions" sub="What each role may do. Changes apply from each holder's next request.">
+      <PageHead title="Roles & permissions">
         {can("access.role.edit") && <Button kind="main" icon="add" onClick={() => { act.setError(null); setCreating(true); }}>New role</Button>}
       </PageHead>
       <ErrorBox error={list.error ?? catalogue.error} />

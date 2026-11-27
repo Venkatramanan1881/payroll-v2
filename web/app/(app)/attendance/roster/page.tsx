@@ -41,7 +41,7 @@ export default function Roster() {
 
   return (
     <>
-      <PageHead title="Roster" sub="Roster entry beats the default shift; holidays from the branch calendar.">
+      <PageHead title="Roster">
         {manage && (
           <>
             <Button icon="content_copy" onClick={() => setDialog("copy")}>Copy</Button>

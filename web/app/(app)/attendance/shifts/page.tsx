@@ -93,7 +93,7 @@ export default function Shifts() {
 
   return (
     <>
-      <PageHead title="Shifts" sub="Shift times are dated versions; a saved version is never edited.">
+      <PageHead title="Shifts">
         {manage && <Button kind="main" icon="add" onClick={() => setCreating(true)}>New shift</Button>}
       </PageHead>
       <div className="filters">

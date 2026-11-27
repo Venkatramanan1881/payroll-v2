@@ -53,7 +53,7 @@ export default function CustomFields() {
 
   return (
     <>
-      <PageHead title="Custom fields" sub="Extra fields on every employee record.">
+      <PageHead title="Custom fields">
         {manage && <Button kind="main" icon="add" onClick={() => open("new")}>New field</Button>}
       </PageHead>
       <div className="filters">

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtDate, mins, PageHead, Pill, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtDate, mins, PageHead, Pill, Table, TabTools } from "@/components/ui";
 import { today, useApi, useCan } from "@/lib/hooks";
 import { Features, RequestForm } from "../RequestForm";
 
@@ -28,10 +28,10 @@ export default function MyAttendance() {
       <PageHead title="My attendance">
         {canAsk && <Button kind="main" icon="edit_calendar" onClick={() => setAsk("")}>Request a correction</Button>}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="From"><input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></Field>
         <Field label="To"><input type="date" value={f.to} max={today()} onChange={(e) => setF({ ...f, to: e.target.value })} /></Field>
-      </div>
+      </TabTools>
       {days.data && (
         <div className="row muted small" style={{ marginBottom: 12, gap: 16 }}>
           <span>Present {count("present")}</span>

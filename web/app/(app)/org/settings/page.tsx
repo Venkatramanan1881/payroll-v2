@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { SettingMeta, SettingsForm } from "@/components/SettingsForm";
-import { Button, Code, ErrorBox, Field, Icon, Loading, PageHead, Select, Tabs } from "@/components/ui";
+import { Button, Code, ErrorBox, Field, Icon, Loading, PageHead, Select, TabTools, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi, useCan } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
@@ -158,24 +158,21 @@ export default function OrgSettings() {
 
   return (
     <>
-      <PageHead title="Employee master settings">
-        <Field label="Showing settings as of">
+      <PageHead title="Employee master settings" />
+      <TabTools className="filters list-tabs">
+        <Tabs value={tab} onChange={setTab} tabs={[{ value: "EM", label: "Employee master" }, { value: "OR", label: "Organisation" }, { value: "AC", label: "Access control" }]} />
+        <Field label="Settings as of">
           <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
         </Field>
-      </PageHead>
-      <div className="settings-top">
-        <Tabs value={tab} onChange={setTab} tabs={[{ value: "EM", label: "Employee master" }, { value: "OR", label: "Organisation" }, { value: "AC", label: "Access control" }]} />
-        {current && (
-          <span className="muted small">
-            <Icon name="history" /> Version in force from {current.valid_from ? String(current.valid_from) : "the start (defaults)"}
-          </span>
-        )}
-      </div>
+      </TabTools>
       <ErrorBox error={data.error} />
       {!current ? (
         <Loading />
       ) : (
         <div className="card settings-card">
+          <div className="settings-top">
+            <Icon name="history" /> Version in force from {current.valid_from ? String(current.valid_from) : "the start (defaults)"}
+          </div>
           <SettingsForm values={values} onChange={setValues} meta={META[tab]} readOnly={!edit} error={act.error} />
           {tab === "EM" && custom(values) && edit && <Preview pattern={values.employee_code_pattern} />}
           {edit && (

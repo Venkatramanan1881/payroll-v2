@@ -40,14 +40,13 @@ export function Outcome({ value }: { value: { applied?: number; unchanged?: numb
   );
 }
 
-/** Search box + select for one employee. */
+/** One employee, searched on the server as you type. */
 export function EmployeePicker({ label = "Employee", value, onChange, name, error }: { label?: string; value: string; onChange: (v: string) => void; name?: string; error?: any }) {
   const [q, setQ] = useState("");
   const emp = useEmployeeOptions(q || undefined);
   return (
     <Field label={label} name={name} error={error}>
-      <input placeholder="Search name or code" value={q} onChange={(e) => setQ(e.target.value)} />
-      <Select value={value} onChange={onChange} options={emp.options} placeholder="Choose…" />
+      <Select value={value} onChange={onChange} options={emp.options} onSearch={setQ} placeholder="Choose…" />
     </Field>
   );
 }

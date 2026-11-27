@@ -672,15 +672,16 @@ pub(crate) async fn check_joiner(
             errs.push(FieldError::new(f, "required", format!("{f} is required")));
         }
     }
+    // EM-02 setting name, and the field name in errors (job fields sit under `job.` like the required ones above).
     let optional = [
-        ("designation_id", j.designation_id.is_none()),
-        ("contractor_id", j.contractor_id.is_none()),
-        ("reporting_manager_id", j.reporting_manager_id.is_none()),
-        ("enrolment_id", blank(&j.enrolment_id)),
-        ("probation_end_date", probation_end_date.is_none()),
+        ("designation_id", "job.designation_id", j.designation_id.is_none()),
+        ("contractor_id", "job.contractor_id", j.contractor_id.is_none()),
+        ("reporting_manager_id", "job.reporting_manager_id", j.reporting_manager_id.is_none()),
+        ("enrolment_id", "job.enrolment_id", blank(&j.enrolment_id)),
+        ("probation_end_date", "probation_end_date", probation_end_date.is_none()),
     ];
-    for (f, missing) in optional {
-        if missing && em.is_mandatory(f) {
+    for (setting, f, missing) in optional {
+        if missing && em.is_mandatory(setting) {
             errs.push(FieldError::new(f, "required", format!("{f} is required")));
         }
     }

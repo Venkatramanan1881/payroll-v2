@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, fmtDate, fmtTime, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, fmtDate, fmtTime, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 
@@ -21,9 +21,9 @@ export default function OptionalHolidayPicks() {
   return (
     <>
       <PageHead title="Optional holiday picks" />
-      <div className="filters">
+      <TabTools>
         <Select value={state} onChange={setState} options={["pending", "approved", "rejected", "withdrawn", "cancelled"].map((s) => ({ value: s, label: s }))} placeholder="Any state" />
-      </div>
+      </TabTools>
       <ErrorBox error={list.error ?? (rejecting ? null : act.error)} />
       <Card pad={false}>
         <Table

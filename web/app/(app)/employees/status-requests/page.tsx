@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { Button, Card, ErrorBox, fmtDate, fmtTime, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, fmtDate, fmtTime, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAccess, useAction, useApi, useCan } from "@/lib/hooks";
 
@@ -38,12 +38,12 @@ export default function StatusRequests() {
   return (
     <>
       <PageHead title="Status requests" />
-      <div className="filters">
+      <TabTools>
         <Select value={state} onChange={setState} options={STATES} placeholder="Any state" />
         <label className="check">
           <input type="checkbox" checked={mine} onChange={(x) => setMine(x.target.checked)} /> Awaiting me
         </label>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, Loading, Modal, PageHead, Select } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, Loading, Modal, PageHead, Select, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi, useCan } from "@/lib/hooks";
 import { useBranches, useList, useShifts } from "@/lib/lookups";
@@ -50,12 +50,12 @@ export default function Roster() {
           </>
         )}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="From"><input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setCursor(undefined); }} /></Field>
         <Field label="To (≤ 62 days)"><input type="date" value={to} onChange={(e) => { setTo(e.target.value); setCursor(undefined); }} /></Field>
         <Field label="Branch"><Select value={branch} onChange={(v) => { setBranch(v); setCursor(undefined); }} options={branches.options} placeholder="Any" /></Field>
         <Field label="Department"><Select value={dept} onChange={(v) => { setDept(v); setCursor(undefined); }} options={departments.options} placeholder="Any" /></Field>
-      </div>
+      </TabTools>
       <Outcome value={outcome} />
       <ErrorBox error={view.error} />
       <Card pad={false}>

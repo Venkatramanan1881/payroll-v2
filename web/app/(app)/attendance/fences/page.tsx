@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtDate, Modal, PageHead, Pill, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtDate, Modal, PageHead, Pill, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
@@ -20,9 +20,9 @@ export default function Fences() {
       <PageHead title="Geo-fences">
         {branch && <Button kind="main" icon="add" onClick={() => setEdit({ name: "", radius_m: 200 })}>New fence</Button>}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="Branch"><Select value={branch} onChange={setBranch} options={branches.options} placeholder="Choose…" /></Field>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error ?? act.error} />
       {branch ? (
         <Card pad={false}>

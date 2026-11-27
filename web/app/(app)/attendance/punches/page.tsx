@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, Modal, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, Modal, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi, useCan } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
@@ -37,7 +37,7 @@ export default function Punches() {
   return (
     <>
       <PageHead title="Punches" />
-      <div className="filters">
+      <TabTools>
         <Field label="From"><input type="date" value={f.from} onChange={(e) => set("from")(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={f.to} onChange={(e) => set("to")(e.target.value)} /></Field>
         <Field label="Branch"><Select value={f.branch_id} onChange={set("branch_id")} options={branches.options} placeholder="Any" /></Field>
@@ -45,7 +45,7 @@ export default function Punches() {
         <Field label="Flag"><input value={f.flag} placeholder="e.g. outside_fence" onChange={(e) => set("flag")(e.target.value)} /></Field>
         <Field label="Review"><Select value={f.review} onChange={set("review")} options={opts(["pending", "approved", "rejected"])} placeholder="Any" /></Field>
         <EmployeePicker value={f.employee_id} onChange={set("employee_id")} />
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table
@@ -66,7 +66,7 @@ export default function Punches() {
               c: (p) =>
                 p.source === "manual"
                   ? !p.voided && can("attendance.punch.manual") && <Button kind="link" onClick={() => setVoiding(p)}>Void</Button>
-                  : p.employee && can("attendance.punch.adjudicate") && <Button kind="link" onClick={() => setAdj(p)}>Adjudicate</Button>,
+                  : p.employee && can("attendance.punch.adjudicate") && <Button kind="link" onClick={() => setAdj(p)}>Correct punch</Button>,
             },
           ]}
         />
@@ -98,7 +98,7 @@ function Adjudicate({ punch, onClose, onDone }: { punch: Punch; onClose: () => v
         }
       });
   return (
-    <Modal open title="Adjudicate punch" onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button kind="main" disabled={act.busy} onClick={save}>Save</Button></>}>
+    <Modal open title="Correct punch" onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button kind="main" disabled={act.busy} onClick={save}>Save</Button></>}>
       <p className="muted">{punch.employee?.full_name} · {punch.local_time?.replace("T", " ").slice(0, 16)} · {punch.direction}</p>
       {punch.adjudications.length > 0 && <div className="note">Earlier: {punch.adjudications.map((a) => `${a.kind} (${a.reason})`).join("; ")}</div>}
       <div className="grid2">

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtDate, fmtTime, Icon, mins, PageHead, Pill, Select, Spinner } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtDate, fmtTime, Icon, Loading, mins, PageHead, Pill, Select, TabTools } from "@/components/ui";
 import { today, useApi, useCan } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
 import { addDays } from "../_shared";
@@ -39,18 +39,18 @@ export default function Exceptions() {
           </Link>
         )}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="From"><input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></Field>
         <Field label="To"><input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></Field>
         <Field label="Branch"><Select value={f.branch_id} onChange={(v) => setF({ ...f, branch_id: v })} options={branches.options} placeholder="Any" /></Field>
         <Field label="Flag">
           <Select value={f.flag} onChange={(v) => setF({ ...f, flag: v || "any" })} options={[{ value: "any", label: "Any flag" }, ...Object.entries(FLAGS).map(([value, label]) => ({ value, label }))]} />
         </Field>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         {!items ? (
-          <div className="empty"><Spinner /></div>
+          <Loading table />
         ) : items.length === 0 ? (
           <div className="empty">
             <span className="tile"><Icon name="task_alt" /></span>

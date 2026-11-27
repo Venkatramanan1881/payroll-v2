@@ -10,8 +10,12 @@ export const statusOpts = STATUSES.map((s) => ({ value: s, label: s.replace(/_/g
 
 export type Job = Record<string, string | string[] | null | undefined>;
 
+/** Job fields every new joiner needs (backend employees.rs check_joiner); EM-02 can add more. */
+export const JOB_REQUIRED = ["master_branch_id", "department_id", "category_id", "employee_type_id", "payroll_group_id"];
+
 /** The ten job fields (Package 1 §2.2). `prefix` is how the server names errors: "job." on create/rejoin, "changes." on job changes. */
-export function JobFields({ value, onChange, error, prefix }: { value: Job; onChange: (k: string, v: string | string[] | null) => void; error?: ApiError | null; prefix: string }) {
+export function JobFields({ value, onChange, error, prefix, required = [] }: { value: Job; onChange: (k: string, v: string | string[] | null) => void; error?: ApiError | null; prefix: string; required?: string[] }) {
+  const req = (k: string) => required.includes(k);
   const branches = useBranches();
   const depts = useList("departments");
   const desigs = useList("designations");
@@ -22,12 +26,12 @@ export function JobFields({ value, onChange, error, prefix }: { value: Job; onCh
   const [q, setQ] = useState("");
   const managers = useEmployeeOptions(q);
   const sel = (k: string, label: string, options: { value: string; label: string }[], optional = false) => (
-    <Field label={label} name={prefix + k} error={error}>
-      <Select value={(value[k] as string) ?? ""} onChange={(v) => onChange(k, v || null)} options={options} placeholder={optional ? "— None —" : "Choose…"} />
+    <Field label={label} name={prefix + k} error={error} required={req(k)}>
+      <Select value={(value[k] as string) ?? ""} onChange={(v) => onChange(k, v || null)} options={options} placeholder={optional && !req(k) ? "— None —" : "Choose…"} />
     </Field>
   );
   return (
-    <div className="grid2">
+    <div className="form-grid">
       {sel("master_branch_id", "Master branch", branches.options)}
       <Field label="Allowed branches" name={prefix + "allowed_branch_ids"} error={error}>
         <MultiSelect options={branches.options} value={(value.allowed_branch_ids as string[]) ?? []} onChange={(v) => onChange("allowed_branch_ids", v)} placeholder="Choose…" />
@@ -38,12 +42,17 @@ export function JobFields({ value, onChange, error, prefix }: { value: Job; onCh
       {sel("employee_type_id", "Employee type", types.options)}
       {sel("contractor_id", "Contractor", contractors.options, true)}
       {sel("payroll_group_id", "Payroll group", groups.options)}
-      <Field label="Reporting manager" name={prefix + "reporting_manager_id"} error={error}>
-        <input placeholder="Search name or code" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Select value={(value.reporting_manager_id as string) ?? ""} onChange={(v) => onChange("reporting_manager_id", v || null)} options={managers.options} placeholder="— None —" />
+      <Field label="Reporting manager" name={prefix + "reporting_manager_id"} error={error} required={req("reporting_manager_id")}>
+        <Select
+          value={(value.reporting_manager_id as string) ?? ""}
+          onChange={(v) => onChange("reporting_manager_id", v || null)}
+          options={managers.options}
+          onSearch={setQ}
+          placeholder={req("reporting_manager_id") ? "Choose…" : "— None —"}
+        />
       </Field>
-      <Field label="Enrolment ID" name={prefix + "enrolment_id"} error={error} hint="Biometric device ID">
-        <input value={(value.enrolment_id as string) ?? ""} onChange={(e) => onChange("enrolment_id", e.target.value || null)} />
+      <Field label="Enrolment ID" name={prefix + "enrolment_id"} error={error} required={req("enrolment_id")}>
+        <input placeholder="Biometric device ID" value={(value.enrolment_id as string) ?? ""} onChange={(e) => onChange("enrolment_id", e.target.value || null)} />
       </Field>
     </div>
   );

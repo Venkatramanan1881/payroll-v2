@@ -14,6 +14,7 @@ export const NAV: NavSection[] = [
       { href: "/employees/new", label: "Add employee", icon: "person_add", perm: ["employee.create"] },
       { href: "/employees/status-requests", label: "Status requests", icon: "swap_horiz", perm: ["employee.status.raise", "employee.status.approve"] },
       { href: "/employees/imports", label: "Bulk import", icon: "upload_file", perm: ["employee.bulk_import"] },
+      { href: "/org/settings", label: "Settings", icon: "tune", perm: ["employee.view", "org.settings.edit"] },
     ],
   },
   {
@@ -26,7 +27,6 @@ export const NAV: NavSection[] = [
       { href: "/org/contractors", label: "Contractors", icon: "engineering", perm: ["employee.view", "org.contractor.manage"] },
       { href: "/org/payroll-groups", label: "Payroll groups", icon: "groups", perm: ["employee.view", "org.payroll_group.manage"] },
       { href: "/org/custom-fields", label: "Custom fields", icon: "dynamic_form", perm: ["employee.view", "employee.custom_fields.manage"] },
-      { href: "/org/settings", label: "Employee master settings", icon: "tune", perm: ["employee.view", "org.settings.edit"] },
     ],
   },
   {
@@ -51,7 +51,8 @@ export const NAV: NavSection[] = [
       { href: "/attendance/reviews", label: "Punch reviews", icon: "rule", perm: ["attendance.punch.review"] },
       { href: "/attendance/manual", label: "Manual attendance", icon: "edit_calendar", perm: ["attendance.punch.manual"] },
       { href: "/attendance/regularisations", label: "Regularisations", icon: "assignment_turned_in", perm: ["attendance.regularisation.approve", "attendance.regularisation.request"] },
-      { href: "/attendance/waivers", label: "Waivers & outages", icon: "healing", perm: ["attendance.waiver.manage", "attendance.outage.regularise"] },
+      // shortcut: Waivers & outages hidden for now (page still at /attendance/waivers), add this line back when needed.
+      // { href: "/attendance/waivers", label: "Waivers & outages", icon: "healing", perm: ["attendance.waiver.manage", "attendance.outage.regularise"] },
       { href: "/attendance/imports", label: "Punch & roster imports", icon: "upload_file", perm: ["attendance.punch.import", "attendance.roster.manage"] },
       { href: "/attendance/reports", label: "Reports", icon: "summarize", perm: ["attendance.day.view"] },
     ],

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Button, Card, Code, ErrorBox, Field, fmtTime, Modal, PageHead, Table } from "@/components/ui";
+import { Button, Card, Code, ErrorBox, Field, fmtTime, Modal, PageHead, Table, TabTools } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 
 type Entry = {
@@ -53,15 +53,15 @@ export default function Audit() {
   return (
     <>
       <PageHead title="Audit log" />
-      <div className="filters">
+      <TabTools>
         {input("action", "Action (permission code)")}
         {input("target_type", "Target type")}
         {input("target_id", "Target id")}
         {input("actor_id", "Actor id")}
         {input("from", "From", "date")}
         {input("to", "To", "date")}
-        <Button kind="main" icon="filter_alt" onClick={() => setApplied(f)} style={{ alignSelf: "end" }}>Apply</Button>
-      </div>
+        <Button kind="main" icon="filter_alt" onClick={() => setApplied(f)}>Apply</Button>
+      </TabTools>
       <ErrorBox error={error} />
       <Card pad={false}>
         <Table

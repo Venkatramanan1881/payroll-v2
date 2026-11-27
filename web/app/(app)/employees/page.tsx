@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Card, Code, ErrorBox, Icon, PageHead, Pill, Select, Table } from "@/components/ui";
+import { Button, Card, Code, ErrorBox, Icon, PageHead, Pill, Select, Table, TabTools } from "@/components/ui";
 import { api, ApiError, cache } from "@/lib/api";
 import { useCan } from "@/lib/hooks";
 import { useBranches, useList } from "@/lib/lookups";
@@ -49,15 +49,19 @@ export default function Employees() {
           </Link>
         )}
       </PageHead>
-      <div className="filters">
-        <input placeholder="Search name, code or mobile" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
+      <TabTools>
+        <div className="search with-icon">
+          <Icon name="search" />
+          <input aria-label="Search" placeholder="Search name, code or mobile" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
+        </div>
         <Select value={f.branch_id} onChange={(v) => setF({ ...f, branch_id: v })} options={branches.options} placeholder="All branches" />
         <Select value={f.department_id} onChange={(v) => setF({ ...f, department_id: v })} options={depts.options} placeholder="All departments" />
         <Select value={f.status} onChange={(v) => setF({ ...f, status: v })} options={statusOpts} placeholder="Any status" />
-      </div>
+      </TabTools>
       <ErrorBox error={error} />
       <Card pad={false}>
         <Table
+          search={false}
           rows={rows}
           onRow={(r) => router.push(`/employees/${r.id}`)}
           empty="No employees match."

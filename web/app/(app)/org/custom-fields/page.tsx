@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, Modal, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, Modal, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi, useCan } from "@/lib/hooks";
 
@@ -56,9 +56,9 @@ export default function CustomFields() {
       <PageHead title="Custom fields">
         {manage && <Button kind="main" icon="add" onClick={() => open("new")}>New field</Button>}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Select value={state} onChange={setState} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }]} />
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table

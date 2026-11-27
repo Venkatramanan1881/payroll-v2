@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Card, ErrorBox, Icon, PageHead, Spinner, Table } from "@/components/ui";
+import { Card, ErrorBox, Icon, PageHead, Skeleton, Table } from "@/components/ui";
 import { useAccess, useApi, useCan } from "@/lib/hooks";
 
 type Row = { branch: { id: string; short_code: string; name: string } | null; present: number; absent: number; late: number; on_leave: number; missed_punches: number };
@@ -41,7 +41,7 @@ export default function Dashboard() {
                     <span>{k.l}</span>
                     <span className="tile"><Icon name={k.i} fill /></span>
                   </div>
-                  <div className="v">{dash.loading ? <Spinner small /> : k.v}</div>
+                  <div className="v">{dash.loading ? <Skeleton w={64} h={26} /> : k.v}</div>
                 </div>
               );
               return k.href ? (

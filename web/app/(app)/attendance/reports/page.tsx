@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Card, ErrorBox, Field, PageHead, Select, Table } from "@/components/ui";
+import { Card, ErrorBox, Field, PageHead, Select, Table, TabTools } from "@/components/ui";
 import { today, useApi } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
 import { addDays } from "../_shared";
@@ -27,12 +27,12 @@ export default function Reports() {
   return (
     <>
       <PageHead title="Attendance reports" />
-      <div className="filters">
+      <TabTools>
         <Field label="Report"><Select value={code} onChange={setCode} options={REPORTS} /></Field>
         <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <Field label="Branch"><Select value={branch} onChange={setBranch} options={branches.options} placeholder="All in scope" /></Field>
-      </div>
+      </TabTools>
       <ErrorBox error={rep.error} />
       <Card pad={false}>
         <Table

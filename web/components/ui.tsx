@@ -1,5 +1,6 @@
 "use client";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ApiError } from "@/lib/api";
@@ -20,7 +21,7 @@ export function PageHead({ title, sub, children }: { title: string; sub?: string
           <h1>{title}</h1>
           {sub && <p className="muted">{sub}</p>}
         </div>
-        <div className="row">{children}</div>
+        <div id="head-actions" className="row">{children}</div>
       </div>
       <SectionTabs />
     </>
@@ -33,16 +34,45 @@ function SectionTabs() {
   const can = useCan();
   const here = locate(path);
   const pages = here?.section.pages.filter((p) => !p.perm || can(...p.perm)) ?? [];
-  if (pages.length < 2) return null;
   return (
-    <nav className="tabs section-tabs" aria-label={here!.section.label}>
-      {pages.map((p) => (
-        <Link key={p.href} href={p.href} className={p.href === here!.page.href ? "on" : ""} aria-current={p.href === here!.page.href ? "page" : undefined}>
-          {p.label}
-        </Link>
-      ))}
-    </nav>
+    // Attendance pages have many filters: they get their own row under the tabs.
+    <div className={`tab-row${path.startsWith("/attendance") ? " split" : ""}`}>
+      {pages.length > 1 && (
+        <nav className="tabs section-tabs" aria-label={here!.section.label}>
+          {pages.map((p) => (
+            <Link key={p.href} href={p.href} className={p.href === here!.page.href ? "on" : ""} aria-current={p.href === here!.page.href ? "page" : undefined}>
+              {p.label}
+            </Link>
+          ))}
+        </nav>
+      )}
+      <div id="tab-tools" className="tab-tools" />
+    </div>
   );
+}
+
+/**
+ * Puts its children (page filters, the table search) at the right end of the tab row under the page title, or with
+ * `to="head-actions"` among the page title's buttons (a "New …" button rendered below the title).
+ * Stays in place inside a modal, or when the page has no tab row. `claim`: only the first user of that name moves
+ * (the page's main table, not a second one further down).
+ */
+export function TabTools({ children, className = "filters", claim, to = "tab-tools" }: { children: ReactNode; className?: string; claim?: string; to?: "tab-tools" | "head-actions" }) {
+  const here = useRef<HTMLDivElement>(null);
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const t = document.getElementById(to);
+    if (!t || here.current?.closest("dialog")) return;
+    if (claim) {
+      if (t.dataset[claim]) return;
+      t.dataset[claim] = "1";
+    }
+    setTarget(t);
+    return () => {
+      if (claim) delete t.dataset[claim];
+    };
+  }, [claim, to]);
+  return target ? createPortal(<div className={className}>{children}</div>, target) : <div ref={here} className={className}>{children}</div>;
 }
 
 type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { kind?: "main" | "ghost" | "danger" | "link"; icon?: string };
@@ -103,13 +133,53 @@ export function ErrorBox({ error, fields = [] }: { error: ApiError | null; field
   );
 }
 
-export const Spinner = ({ small }: { small?: boolean }) => <span className={`spinner${small ? " sm" : ""}`} role="status" aria-label="Loading" />;
+/** Shimmering placeholder bar in the shape of the content that is coming. */
+export const Skeleton = ({ w = "100%", h = 14, r }: { w?: number | string; h?: number | string; r?: number }) => (
+  <span className="sk" style={{ width: w, height: h, borderRadius: r }} aria-hidden />
+);
 
-/** Spinner block; `full` centres it on the whole screen (first load). */
-export function Loading({ full }: { full?: boolean }) {
+/** Skeleton of a table: header and rows. */
+function TableSkeleton({ rows = 6, cols = 5 }: { rows?: number; cols?: number }) {
   return (
-    <div className={full ? "loading full" : "loading"}>
-      <Spinner />
+    <div className="sk-table" role="status" aria-label="Loading">
+      <div className="sk-tr head">{Array.from({ length: cols }, (_, i) => <Skeleton key={i} w={`${50 + ((i * 17) % 35)}%`} h={10} />)}</div>
+      {Array.from({ length: rows }, (_, r) => (
+        <div key={r} className="sk-tr">
+          {Array.from({ length: cols }, (_, i) => <Skeleton key={i} w={`${45 + (((r + 1) * (i + 3) * 13) % 50)}%`} />)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Loading placeholder. `full`: the whole app frame (first load); `table`: rows; otherwise a card of lines. */
+export function Loading({ full, table }: { full?: boolean; table?: boolean }) {
+  if (table) return <TableSkeleton />;
+  if (full)
+    return (
+      <div className="sk-app" role="status" aria-label="Loading">
+        <aside className="sk-rail">
+          <Skeleton w={44} h={44} r={10} />
+          {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} w={40} h={40} r={10} />)}
+        </aside>
+        <div className="sk-main">
+          <div className="sk-top"><Skeleton w={220} h={16} /><Skeleton w={110} h={30} r={999} /></div>
+          <div className="sk-body">
+            <Skeleton w={280} h={34} r={8} />
+            <Skeleton w="min(640px, 100%)" h={44} r={12} />
+            <div className="sk-kpis">{Array.from({ length: 4 }, (_, i) => <div key={i} className="card sk-card"><Skeleton w="40%" h={12} /><Skeleton w="60%" h={26} /></div>)}</div>
+            <div className="card"><TableSkeleton /></div>
+          </div>
+        </div>
+      </div>
+    );
+  return (
+    <div className="sk-block" role="status" aria-label="Loading">
+      <Skeleton w="35%" h={18} />
+      <Skeleton w="90%" />
+      <Skeleton w="75%" />
+      <Skeleton w="82%" />
+      <Skeleton w="60%" />
     </div>
   );
 }
@@ -197,6 +267,7 @@ export function Field({
   hint,
   children,
   wide,
+  required,
 }: {
   label: string;
   name?: string;
@@ -204,11 +275,16 @@ export function Field({
   hint?: ReactNode;
   children: ReactNode;
   wide?: boolean;
+  /** Shows a red asterisk; the server still decides. */
+  required?: boolean;
 }) {
   const msg = name && error ? error.field(name) : undefined;
   return (
     <label className={`field${wide ? " wide" : ""}${msg ? " bad" : ""}`}>
-      <span>{label}</span>
+      <span>
+        {label}
+        {required && <b className="req" title="Required"> *</b>}
+      </span>
       {children}
       {msg ? <small className="err">{msg}</small> : hint ? <small className="muted">{hint}</small> : null}
     </label>
@@ -231,6 +307,8 @@ type DropProps = {
   style?: React.CSSProperties;
   id?: string;
   "aria-label"?: string;
+  /** Server-side search: the box always shows and each keystroke calls this; options are not filtered here. */
+  onSearch?: (q: string) => void;
 };
 
 /**
@@ -248,6 +326,7 @@ function Dropdown({
   isOn,
   pick,
   shown,
+  onSearch,
   ...aria
 }: DropProps & { multi: boolean; isOn: (v: string) => boolean; pick: (v: string) => void; shown: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -257,11 +336,11 @@ function Dropdown({
   const wrap = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLUListElement>(null);
-  const searchable = options.length > 8;
+  const searchable = options.length > 8 || !!onSearch;
   const items = useMemo(() => {
     const k = q.trim().toLowerCase();
-    return k ? options.filter((o) => o.label.toLowerCase().includes(k)) : options;
-  }, [options, q]);
+    return k && !onSearch ? options.filter((o) => o.label.toLowerCase().includes(k)) : options;
+  }, [options, q, onSearch]);
 
   const place = () => {
     const r = btn.current?.getBoundingClientRect();
@@ -365,6 +444,7 @@ function Dropdown({
                 onChange={(e) => {
                   setQ(e.target.value);
                   setHi(0);
+                  onSearch?.(e.target.value);
                 }}
               />
             </div>
@@ -405,7 +485,11 @@ export function Select({
   ...p
 }: { value: string | undefined | null; onChange: (v: string) => void } & DropProps) {
   const v = value ?? "";
-  const cur = p.options.find((o) => o.value === v);
+  // With server search the chosen option can drop out of `options`; keep showing its label.
+  const last = useRef<Opt | undefined>(undefined);
+  const found = p.options.find((o) => o.value === v);
+  if (found) last.current = found;
+  const cur = found ?? (last.current?.value === v && v ? last.current : undefined);
   return (
     <Dropdown
       {...p}
@@ -496,7 +580,7 @@ const label = (h: ReactNode, i: number) => text(h) || `Column ${i + 1}`;
  * already loaded; cards on phones. Columns whose cell is plain text or a number sort, search and export by it.
  * shortcut: search/sort/paging cover only the loaded rows; server-side filters stay above the table.
  */
-export function Table<T>({ rows, cols, onRow, empty, name = "export" }: { rows: T[] | undefined | null; cols: Col<T>[]; onRow?: (r: T) => void; empty?: ReactNode; name?: string }) {
+export function Table<T>({ rows, cols, onRow, empty, name = "export", search = true }: { rows: T[] | undefined | null; cols: Col<T>[]; onRow?: (r: T) => void; empty?: ReactNode; name?: string; search?: boolean }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ i: number; asc: boolean } | null>(null);
   const [hidden, setHidden] = useState<Record<number, boolean>>({});
@@ -527,7 +611,7 @@ export function Table<T>({ rows, cols, onRow, empty, name = "export" }: { rows: 
     return out;
   }, [rows, cols, q, sort]);
 
-  if (!rows) return <Loading />;
+  if (!rows) return <Loading table />;
   const shown = cols.map((c, i) => ({ ...c, i })).filter((c) => !hidden[c.i]);
   const pages = Math.max(1, Math.ceil(list.length / size));
   const at = Math.min(page, pages);
@@ -550,28 +634,33 @@ export function Table<T>({ rows, cols, onRow, empty, name = "export" }: { rows: 
     <div>
       {tools && (
         <div className="tbl-bar">
-          <div className="search with-icon">
-            <Icon name="search" />
-            <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search records…" aria-label="Search this table" />
-          </div>
-          <div className="row">
-            <div className="menu-wrap" ref={menuRef}>
-              <Button icon="view_column" onClick={() => setMenu(!menu)} aria-expanded={menu}>Columns</Button>
-              {menu && (
-                <div className="card menu cols-menu">
-                  {cols.map((c, i) =>
-                    text(c.h) ? (
-                      <label key={i}>
-                        <input type="checkbox" checked={!hidden[i]} onChange={() => setHidden({ ...hidden, [i]: !hidden[i] })} />
-                        {label(c.h, i)}
-                      </label>
-                    ) : null,
-                  )}
-                </div>
-              )}
+          {/* Search, Columns and Export go to the tab row with the page filters (TabTools); here only inside a modal. */}
+          <TabTools className="tbl-tools" claim="table">
+            {search && (
+              <div className="search with-icon">
+                <Icon name="search" />
+                <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search records…" aria-label="Search this table" />
+              </div>
+            )}
+            <div className="row tbl-actions">
+              <div className="menu-wrap" ref={menuRef}>
+                <Button icon="view_column" onClick={() => setMenu(!menu)} aria-expanded={menu} aria-label="Columns" title="Columns"><span className="lbl">Columns</span></Button>
+                {menu && (
+                  <div className="card menu cols-menu">
+                    {cols.map((c, i) =>
+                      text(c.h) ? (
+                        <label key={i}>
+                          <input type="checkbox" checked={!hidden[i]} onChange={() => setHidden({ ...hidden, [i]: !hidden[i] })} />
+                          {label(c.h, i)}
+                        </label>
+                      ) : null,
+                    )}
+                  </div>
+                )}
+              </div>
+              <Button icon="download" onClick={csv} aria-label="Export CSV" title="Export CSV"><span className="lbl">Export CSV</span></Button>
             </div>
-            <Button icon="download" onClick={csv}>Export CSV</Button>
-          </div>
+          </TabTools>
         </div>
       )}
       {!list.length ? (

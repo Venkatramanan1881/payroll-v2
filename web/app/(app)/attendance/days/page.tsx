@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtDate, fmtTime, mins, PageHead, Pill, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtDate, fmtTime, mins, PageHead, Pill, Select, Table, TabTools } from "@/components/ui";
 import { today, useApi } from "@/lib/hooks";
 import { useBranches, useList } from "@/lib/lookups";
 import { addDays, DAY_STATUSES } from "../_shared";
@@ -22,7 +22,7 @@ export default function Days() {
   return (
     <>
       <PageHead title="Daily attendance" />
-      <div className="filters">
+      <TabTools>
         <Field label="From"><input type="date" value={f.from} onChange={(e) => set("from")(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={f.to} onChange={(e) => set("to")(e.target.value)} /></Field>
         <Field label="Branch"><Select value={f.branch_id} onChange={set("branch_id")} options={branches.options} placeholder="Any" /></Field>
@@ -31,7 +31,7 @@ export default function Days() {
         <Field label="Flag"><input value={f.flag} placeholder="e.g. missed_punch" onChange={(e) => set("flag")(e.target.value)} /></Field>
         <Field label="Late"><Select value={f.late} onChange={set("late")} options={[{ value: "true", label: "Late only" }, { value: "false", label: "Not late" }]} placeholder="Any" /></Field>
         <Field label="State"><Select value={f.state} onChange={set("state")} options={opts(["provisional", "finalised"])} placeholder="Any" /></Field>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table

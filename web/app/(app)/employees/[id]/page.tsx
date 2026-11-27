@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { Code, ErrorBox, Icon, Loading, PageHead, Pill } from "@/components/ui";
+import { Button, Code, ErrorBox, fmtDate, Icon, Loading, PageHead, Pill } from "@/components/ui";
 import { useApi, useCan } from "@/lib/hooks";
 import { AttendanceTab, CustomFieldsTab, HistoryTab, JobTab, OverviewTab, PortalTab, ProbationTab, RejoinTab, StatusTab } from "./tabs";
 
@@ -30,6 +30,14 @@ export default function EmployeePage() {
     exited && can("employee.rejoin") && { value: "rejoin", label: "Rejoin" },
   ].filter(Boolean) as { value: string; label: string }[];
   const props = { e, reload: emp.reload };
+  const facts: [string, React.ReactNode, string][] = [
+    ["Joined", fmtDate(e.employment?.joining_date), "event"],
+    ["Mobile", e.personal.mobile, "call"],
+    ["Email", e.personal.email, "mail"],
+    ["Reporting to", e.job?.reporting_manager?.full_name ?? e.job?.reporting_manager?.name, "supervisor_account"],
+    ["Portal", <Pill key="p" value={e.portal_access} />, "badge"],
+    ["Enrolment", <Pill key="en" value={e.enrolment_status} />, "fingerprint"],
+  ];
   return (
     <>
       <PageHead title="Employee profile">
@@ -37,17 +45,35 @@ export default function EmployeePage() {
           <Icon name="arrow_back" /> Back to list
         </Link>
       </PageHead>
-      <section className="card profile-head">
-        <span className="tile avatar">{initials(e.personal.full_name)}</span>
-        <div>
-          <div className="row">
-            <h2>{e.personal.full_name}</h2>
-            <Code>{e.employee_code}</Code>
-            <Pill value={e.status?.value} />
-            {e.pending_status_request && <Pill value="pending" />}
+      <section className="card profile-hero">
+        <div className="profile-top">
+          <span className="avatar-lg">{initials(e.personal.full_name)}</span>
+          <div className="profile-id">
+            <div className="row">
+              <h2>{e.personal.full_name}</h2>
+              <Code>{e.employee_code}</Code>
+              <Pill value={e.status?.value} />
+              {e.pending_status_request && <Pill value="pending" />}
+            </div>
+            <p className="muted">{[e.job?.designation?.name, e.job?.department?.name, e.job?.master_branch?.name].filter(Boolean).join(" · ") || "—"}</p>
           </div>
-          <p className="muted small">{[e.job?.designation?.name, e.job?.department?.name, e.job?.master_branch?.name].filter(Boolean).join(" · ") || "—"}</p>
+          <div className="row profile-actions">
+            {can("employee.status.raise") && !exited && (
+              <Button icon="swap_horiz" onClick={() => setTab("status")}>Status change</Button>
+            )}
+            {tabs.some((t) => t.value === "job") && (
+              <Button kind="main" icon="work_history" onClick={() => setTab("job")}>Job change</Button>
+            )}
+          </div>
         </div>
+        <dl className="profile-facts">
+          {facts.map(([k, v, icon]) => (
+            <div key={k}>
+              <dt><Icon name={icon} /> {k}</dt>
+              <dd>{v || "—"}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
       <div className="tabs section-tabs profile-tabs" role="tablist">
         {tabs.map((t) => (

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtTime, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtTime, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
@@ -27,10 +27,10 @@ export default function PunchReviews() {
   return (
     <>
       <PageHead title="Punch reviews" />
-      <div className="filters">
+      <TabTools>
         <Field label="State"><Select value={state} onChange={setState} options={["pending", "approved", "rejected"].map((s) => ({ value: s, label: s }))} placeholder="Any" /></Field>
         <Field label="Branch"><Select value={branch} onChange={setBranch} options={branches.options} placeholder="Any" /></Field>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error ?? (rejecting ? null : act.error)} />
       <Card pad={false}>
         <Table

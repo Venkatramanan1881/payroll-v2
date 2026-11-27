@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, Code, ErrorBox, Field, fmtDate, Modal, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, Code, ErrorBox, Field, fmtDate, Modal, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi, useCan } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
@@ -96,10 +96,10 @@ export default function Shifts() {
       <PageHead title="Shifts">
         {manage && <Button kind="main" icon="add" onClick={() => setCreating(true)}>New shift</Button>}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Select value={state} onChange={setState} options={opts(["active", "inactive"])} placeholder="Any state" />
         <Select value={branch} onChange={setBranch} options={branches.options} placeholder="Any branch" />
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table

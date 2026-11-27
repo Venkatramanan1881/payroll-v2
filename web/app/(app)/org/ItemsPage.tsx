@@ -1,6 +1,6 @@
 "use client";
 import { ReactNode, useState } from "react";
-import { Button, Card, Code, ErrorBox, Field, Modal, PhoneInput, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, Code, ErrorBox, Field, Icon, Modal, PhoneInput, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi, useCan } from "@/lib/hooks";
 
@@ -74,19 +74,24 @@ export function ItemsPage({
 
   return (
     <>
-      <div className="filters">
-        <input placeholder="Search code or name" value={q} onChange={(e) => setQ(e.target.value)} />
+      <TabTools>
+        <div className="search with-icon">
+          <Icon name="search" />
+          <input aria-label="Search" placeholder="Search code or name" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
         <Select value={state} onChange={setState} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }]} />
-        <div style={{ flex: 1 }} />
-        {can(manage) && (
+      </TabTools>
+      {can(manage) && (
+        <TabTools to="head-actions" className="row">
           <Button kind="main" icon="add" onClick={() => open("new")}>
             New {noun}
           </Button>
-        )}
-      </div>
+        </TabTools>
+      )}
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table
+          search={false}
           rows={list.data?.items}
           empty={`No ${state} ${noun}s.`}
           cols={[

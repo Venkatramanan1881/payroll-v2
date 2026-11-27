@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, ErrorBox, Modal, PageHead, Select, Tabs } from "@/components/ui";
+import { Button, ErrorBox, Modal, PageHead, Select, TabTools, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useCan } from "@/lib/hooks";
 import type { ListName } from "@/lib/lookups";
@@ -44,9 +44,9 @@ export default function Lists() {
           </Button>
         )}
       </PageHead>
-      <div style={{ marginBottom: 16 }}>
+      <TabTools className="filters list-tabs">
         <Tabs value={tab} onChange={setTab} tabs={LISTS} />
-      </div>
+      </TabTools>
       <ItemsPage key={tab + round} path={`/org/lists/${tab}`} noun={l.noun} manage="org.lists.manage" />
       <Modal
         open={tpl}

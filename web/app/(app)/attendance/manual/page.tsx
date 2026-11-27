@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, PageHead, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, PageHead, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
@@ -36,11 +36,11 @@ export default function ManualAttendance() {
       <PageHead title="Manual attendance">
         <Button kind="main" disabled={!branch || !entries.length || act.busy} onClick={submit}>Save {entries.length || ""} entries</Button>
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="Branch"><Select value={branch} onChange={setBranch} options={branches.options} placeholder="Choose…" /></Field>
         <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <Field label="Reason for the batch" name="reason" error={act.error}><input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-      </div>
+      </TabTools>
       <Outcome value={outcome} />
       <ErrorBox error={sheet.error ?? act.error} fields={["reason"]} />
       {branch ? (

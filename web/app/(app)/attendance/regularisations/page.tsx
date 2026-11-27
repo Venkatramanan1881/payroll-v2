@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtDate, fmtTime, Modal, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtDate, fmtTime, Modal, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAccess, useAction, useApi, useCan } from "@/lib/hooks";
 import { EmployeePicker, toTime } from "../_shared";
@@ -32,12 +32,12 @@ export default function Regularisations() {
       <PageHead title="Regularisations">
         {can("attendance.regularisation.request") && <Button kind="main" icon="add" onClick={() => setRaising(true)}>Raise on behalf</Button>}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="State"><Select value={f.state} onChange={set("state")} options={opts(STATES)} placeholder="Any" /></Field>
         <Field label="From"><input type="date" value={f.from} onChange={(e) => set("from")(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={f.to} onChange={(e) => set("to")(e.target.value)} /></Field>
         <Field label="Show"><Select value={f.awaiting_me} onChange={set("awaiting_me")} options={[{ value: "true", label: "Waiting for me" }]} placeholder="All I can see" /></Field>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table

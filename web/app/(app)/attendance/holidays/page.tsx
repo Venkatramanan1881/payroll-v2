@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtDate, Modal, PageHead, Pill, ReasonDialog, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtDate, Modal, PageHead, Pill, ReasonDialog, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi, useCan } from "@/lib/hooks";
 import { useBranches } from "@/lib/lookups";
@@ -20,9 +20,9 @@ export default function Holidays() {
       <PageHead title="Holiday calendars">
         {manage && <Button kind="main" icon="add" onClick={() => setCreating(true)}>New calendar</Button>}
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="Year"><input type="number" value={year} onChange={(e) => setYear(e.target.value)} /></Field>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error} />
       <Card pad={false}>
         <Table

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Card, ErrorBox, Icon, PageHead, Spinner } from "@/components/ui";
+import { Card, ErrorBox, Icon, PageHead, Skeleton } from "@/components/ui";
 import { useApi, useCan } from "@/lib/hooks";
 
 type Named = { id: string | null; name: string | null; count: number };
@@ -59,7 +59,7 @@ export default function EmployeeDashboard() {
                 <span>{k.l}</span>
                 <span className="tile"><Icon name={k.i} fill /></span>
               </div>
-              <div className="v">{d ? k.v : <Spinner small />}</div>
+              <div className="v">{d ? k.v : <Skeleton w={64} h={26} />}</div>
             </div>
           ))}
         </div>

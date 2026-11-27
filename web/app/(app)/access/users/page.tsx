@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, Modal, MultiSelect, Opt, PageHead, Pill, ReasonDialog, Select, Table, Tabs } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, Modal, MultiSelect, Opt, PageHead, Pill, ReasonDialog, Select, Table, Tabs, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 import { useBranches, useList } from "@/lib/lookups";
@@ -92,9 +92,9 @@ export default function Users() {
           Invite admin
         </Button>
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Tabs value={kind} onChange={setKind} tabs={[{ value: "admin", label: "Admins" }, { value: "employee", label: "Employee users" }]} />
-      </div>
+      </TabTools>
       {notice && <div className="note">{notice}</div>}
       <ErrorBox error={list.error ?? roles.error} />
       <Card pad={false}>

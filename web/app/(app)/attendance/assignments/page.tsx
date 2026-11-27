@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, fmtDate, Modal, PageHead, Select, Table } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, fmtDate, Modal, PageHead, Select, Table, TabTools } from "@/components/ui";
 import { api } from "@/lib/api";
 import { today, useAction, useApi } from "@/lib/hooks";
 import { useBranches, useList } from "@/lib/lookups";
@@ -33,10 +33,10 @@ export default function PolicyAssignments() {
       <PageHead title="Policy assignments">
         <Button kind="main" icon="add" onClick={() => setCreating(true)}>Assign</Button>
       </PageHead>
-      <div className="filters">
+      <TabTools>
         <Field label="Policy set"><Select value={setId} onChange={setSetId} options={setOpts} placeholder="Any" /></Field>
         <Field label="Level"><Select value={level} onChange={setLevel} options={LEVELS} placeholder="Any" /></Field>
-      </div>
+      </TabTools>
       <ErrorBox error={list.error ?? sets.error} />
       <Card pad={false}>
         <Table

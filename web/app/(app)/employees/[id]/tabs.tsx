@@ -4,7 +4,7 @@ import { Button, Card, Code, ErrorBox, Field, fmtDate, fmtTime, Modal, MultiSele
 import { api } from "@/lib/api";
 import { today, useAction, useApi, useCan } from "@/lib/hooks";
 import { useList, useShifts } from "@/lib/lookups";
-import { Job, jobIds, JobFields, named, statusOpts } from "../parts";
+import { Job, jobIds, JOB_REQUIRED, JobFields, named, statusOpts } from "../parts";
 
 type P = { e: any; reload: () => void };
 const ok = async (p: Promise<unknown>) => (await p, true);
@@ -14,7 +14,7 @@ function Kv({ rows }: { rows: [string, React.ReactNode][] }) {
   return (
     <dl className="kv">
       {rows.map(([k, v]) => (
-        <div key={k} style={{ display: "contents" }}>
+        <div key={k} className="kv-row" style={{ display: "contents" }}>
           <dt>{k}</dt>
           <dd>{v ?? "—"}</dd>
         </div>
@@ -40,7 +40,7 @@ export function OverviewTab({ e, reload }: P) {
     <div className="profile-grid">
       <ErrorBox error={edit ? null : act.error} />
       <Card title="Personal" actions={e.can?.edit && <Button icon="edit" onClick={() => setEdit(Object.fromEntries(PERSONAL.map((k) => [k, e.personal[k] ?? ""])))}>Edit</Button>}>
-        <Kv rows={PERSONAL.map((k) => [cap(k), e.personal[k]])} />
+        <Kv rows={PERSONAL.map((k) => [cap(k), k === "date_of_birth" ? (e.personal[k] && fmtDate(e.personal[k])) : k === "gender" && e.personal[k] ? cap(e.personal[k]) : e.personal[k]])} />
       </Card>
       <Card title="Employment">
         <Kv
@@ -528,7 +528,7 @@ export function RejoinTab({ e, reload }: P) {
           <input value={f.reason} onChange={(x) => setF({ ...f, reason: x.target.value })} />
         </Field>
       </div>
-      <JobFields value={job} onChange={(k, v) => setJob({ ...job, [k]: v })} error={act.error} prefix="job." />
+      <JobFields value={job} onChange={(k, v) => setJob({ ...job, [k]: v })} error={act.error} prefix="job." required={JOB_REQUIRED} />
       <ErrorBox error={act.error} fields={["joining_date", "initial_status", "probation_end_date", "mobile", "reason"]} />
     </Card>
   );

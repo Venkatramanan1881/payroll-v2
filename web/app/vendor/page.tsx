@@ -13,7 +13,7 @@ import {
   Pill,
   ReasonDialog,
   Select,
-  Spinner,
+  Skeleton,
   Table,
 } from "@/components/ui";
 import { api, tokens } from "@/lib/api";
@@ -161,7 +161,7 @@ export default function Vendor() {
                   <Icon name={k.i} fill />
                 </span>
               </div>
-              <div className="v">{list ? k.v : <Spinner small />}</div>
+              <div className="v">{list ? k.v : <Skeleton w={64} h={26} />}</div>
             </div>
           ))}
         </div>

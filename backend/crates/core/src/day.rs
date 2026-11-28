@@ -146,6 +146,7 @@ pub const MAKE_UP_PENDING: &str = "make_up_pending";
 pub const PROPORTIONAL: &str = "proportional_pay";
 pub const OVERLAP: &str = "window_overlap";
 pub const SHIFT_NOT_DETECTED: &str = "shift_not_detected";
+pub const NO_ROSTER: &str = "no_roster";
 
 fn mins(a: NaiveDateTime, b: NaiveDateTime) -> i64 {
     (b - a).num_minutes()
@@ -173,9 +174,9 @@ pub fn window(date: NaiveDate, sh: &ShiftTimes) -> Span {
     (s - Duration::minutes(sh.window_before_min as i64), e + Duration::minutes(sh.window_after_min as i64))
 }
 
-/// Which attendance date a punch belongs to, among the windows of the days around it. Two windows:
-/// the nearest shift boundary wins, and the punch is flagged as an overlap (W2, ATT-02). None = in no window.
-pub fn assign(at: NaiveDateTime, days: &[(NaiveDate, &ShiftTimes)]) -> Option<(NaiveDate, bool)> {
+/// Which attendance date a punch belongs to, among the windows of the days around it. Two windows: the nearest
+/// shift boundary or the earlier shift wins (ATT-02 option), and the punch is flagged as an overlap (W2). None = in no window.
+pub fn assign(at: NaiveDateTime, days: &[(NaiveDate, &ShiftTimes)], rule: ShiftOverlap) -> Option<(NaiveDate, bool)> {
     let hits: Vec<_> = days
         .iter()
         .filter(|(d, sh)| {
@@ -184,7 +185,11 @@ pub fn assign(at: NaiveDateTime, days: &[(NaiveDate, &ShiftTimes)]) -> Option<(N
         })
         .map(|(d, sh)| {
             let (s, e) = bounds(*d, sh);
-            (*d, mins(at, s).abs().min(mins(e, at).abs()))
+            let key = match rule {
+                ShiftOverlap::NearestBoundary => mins(at, s).abs().min(mins(e, at).abs()),
+                ShiftOverlap::EarlierShift => mins(at, s), // smaller = starts earlier
+            };
+            (*d, key)
         })
         .collect();
     let best = hits.iter().min_by_key(|h| h.1)?;
@@ -911,8 +916,12 @@ mod tests {
         // W2: 4 Nov 08:55 is in both windows; nearest boundary is the day shift's start.
         let dayshift = ShiftTimes::default();
         let tomorrow = date() + Duration::days(1);
-        assert_eq!(assign(next(8, 55), &[(date(), &night), (tomorrow, &dayshift)]), Some((tomorrow, true)));
-        assert_eq!(assign(next(5, 50), &[(date(), &night), (tomorrow, &dayshift)]), Some((date(), false)));
+        let both = [(date(), &night), (tomorrow, &dayshift)];
+        assert_eq!(assign(next(8, 55), &both, ShiftOverlap::NearestBoundary), Some((tomorrow, true)));
+        assert_eq!(assign(next(5, 50), &both, ShiftOverlap::NearestBoundary), Some((date(), false)));
+        // ATT-02 option: the earlier shift (the night that started at 22:00) takes the overlapping punch, still flagged.
+        assert_eq!(assign(next(8, 55), &both, ShiftOverlap::EarlierShift), Some((date(), true)));
+        assert_eq!(assign(next(9, 30), &[(tomorrow, &dayshift), (date(), &night)], ShiftOverlap::EarlierShift), Some((date(), true)));
         // SH-06 end date: the 22:00 start is on the day before.
         let by_end = ShiftTimes { night_date_rule: NightDateRule::EndDate, ..night.clone() };
         assert_eq!(bounds(tomorrow, &by_end).0, at(22, 0));

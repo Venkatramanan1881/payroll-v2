@@ -1187,9 +1187,11 @@ async fn shift_auto_detect_end_to_end() {
     ).fetch_all(&w.pool).await.unwrap();
     let (d1, d2) = (dates[0].clone(), dates[1].clone());
 
-    // SH-08 on. GEN is everyone's default; MOR and EVE exist too.
+    // SH-08 on, weekly offs from the roster (ATQ-08), earlier shift wins overlaps (ATT-02). GEN is everyone's default.
     sqlx::query("INSERT INTO app.policy_set_versions (org_id, policy_set_id, valid_from, state, settings)
-                 SELECT $1, id, DATE '2026-01-01', 'approved', '{\"auto_detect_shift\": true}' FROM app.policy_sets WHERE org_id = $1 AND is_default")
+                 SELECT $1, id, DATE '2026-01-01', 'approved',
+                        '{\"auto_detect_shift\": true, \"weekly_off_mode\": \"from_roster\", \"shift_overlap\": \"earlier_shift\"}'
+                 FROM app.policy_sets WHERE org_id = $1 AND is_default")
         .bind(w.org).execute(&w.pool).await.unwrap();
     let gen = shift(&w, "key-ad-gen1", json!({ "code": "GEN", "name": "General", "valid_from": "2026-01-01" })).await;
     let mor = shift(&w, "key-ad-mor1", json!({ "code": "MOR", "name": "Morning", "valid_from": "2026-01-01", "start_time": "06:00", "end_time": "14:00" })).await;
@@ -1228,8 +1230,12 @@ async fn shift_auto_detect_end_to_end() {
     // AC-AT-03.2: Ravi's punches are outside MOR's window: default shift, flagged.
     let r1 = day_of(ravi, d1.clone()).await;
     assert_eq!((r1["shift"]["code"].as_str(), r1["shift"]["detected"].as_bool()), (Some("GEN"), Some(false)), "{r1}");
-    assert!(r1["flags"].as_array().unwrap().iter().any(|f| f == "shift_not_detected"), "{r1}");
+    let has = |d: &Value, f: &str| d["flags"].as_array().unwrap().iter().any(|x| x == f);
+    assert!(has(&r1, "shift_not_detected"), "{r1}");
+    // ATQ-08: no roster entry on a roster-driven calendar is flagged; a rostered day is not.
+    assert!(has(&a1, "no_roster") && has(&r1, "no_roster"), "{a1} {r1}");
     // A roster entry is never overridden.
     let a2 = day_of(asha, d2).await;
     assert_eq!((a2["shift"]["code"].as_str(), a2["shift"]["detected"].as_bool()), (Some("EVE"), Some(false)), "{a2}");
+    assert!(!has(&a2, "no_roster"), "{a2}");
 }

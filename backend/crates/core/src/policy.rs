@@ -32,6 +32,7 @@ choice!(BothOrEither { Both, Either });
 choice!(FenceScope { MasterOnly, MasterAndAllowed });
 choice!(OnDutyFence { NotApplied, Applied });
 choice!(WeeklyOffMode { Fixed, Alternating, FromRoster });
+choice!(ShiftOverlap { NearestBoundary, EarlierShift });
 choice!(ReadingMode { DirectionTagged, FirstInLastOut });
 choice!(KeepPunch { First, Last });
 choice!(BreakType { None, FixedAutoDeduct, Window, Flexible, FlexibleWithCap });
@@ -108,6 +109,7 @@ pub struct AtSettings {
     pub fences_apply: FenceScope,                 // PC-16
     pub fence_on_on_duty: OnDutyFence,            // PC-17
     // SH shift options
+    pub shift_overlap: ShiftOverlap,              // SH-07 / ATT-02: a punch inside two shift windows
     pub auto_detect_shift: bool,                  // SH-08
     pub weekly_off_mode: WeeklyOffMode,           // SH-09
     pub weekly_off_days: Vec<u8>,                 // SH-09 fixed (ISO weekdays)
@@ -266,6 +268,7 @@ impl Default for AtSettings {
             web_location_and_ip: BothOrEither::Either,
             fences_apply: FenceScope::MasterAndAllowed,
             fence_on_on_duty: OnDutyFence::NotApplied,
+            shift_overlap: ShiftOverlap::NearestBoundary,
             auto_detect_shift: false,
             weekly_off_mode: WeeklyOffMode::Fixed,
             weekly_off_days: vec![7],
@@ -523,6 +526,7 @@ const META: &[(&str, &str, &str, Choices)] = &[
     ("web_location_and_ip", "PC-15", "Web location and IP restriction both on", Some(BothOrEither::names)),
     ("fences_apply", "PC-16", "Fences that apply", Some(FenceScope::names)),
     ("fence_on_on_duty", "PC-17", "Geo-fence on approved on-duty days", Some(OnDutyFence::names)),
+    ("shift_overlap", "SH-07", "Punch inside two shift windows", Some(ShiftOverlap::names)),
     ("auto_detect_shift", "SH-08", "Detect the shift from the first punch", None),
     ("weekly_off_mode", "SH-09", "Weekly offs", Some(WeeklyOffMode::names)),
     ("weekly_off_days", "SH-09", "Fixed weekly off days (1 = Monday)", None),

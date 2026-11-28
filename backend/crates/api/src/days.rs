@@ -181,6 +181,8 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
     // shortcut: neighbouring days keep their roster/default shift for the window overlap below; detect them too
     // if rotating staff without rosters show wrong overlaps.
     let mut not_detected = false;
+    // ATQ-08: weekly offs come from the roster but this date has none: a working day on the default shift, flagged.
+    let no_roster = s.weekly_off_mode == WeeklyOffMode::FromRoster && !sched.rostered;
     if s.auto_detect_shift && !sched.rostered && !rows.is_empty() {
         let mut opts = detect_candidates(tx, &sched, d).await?;
         let times: Vec<NaiveDateTime> = rows
@@ -218,7 +220,7 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
         let moved: Option<NaiveDate> = r.get("moved");
         let owner = match moved {
             Some(m) => Some(m),
-            None => match day::assign(at, &refs) {
+            None => match day::assign(at, &refs, s.shift_overlap) {
                 Some((x, o)) => {
                     overlap |= o && x == d;
                     Some(x)
@@ -316,7 +318,7 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
         "punches": input.punches.iter().map(|p| json!([p.id, p.at, format!("{:?}", p.dir), p.flagged, p.branch])).collect::<Vec<_>>(),
         "excluded": excluded, "shift_version": sched.shift_version, "policy_version": policy.version_id, "master": sched.master,
         "weekly_off": sched.weekly_off, "holiday": sched.holiday, "presence": presence_around, "waivers": waivers.iter().map(|w| w.0).collect::<Vec<_>>(),
-        "grace": [input.late_grace_left, input.early_grace_left], "cutoff": input.past_cutoff, "overlap": overlap, "not_detected": not_detected,
+        "grace": [input.late_grace_left, input.early_grace_left], "cutoff": input.past_cutoff, "overlap": overlap, "not_detected": not_detected, "no_roster": no_roster,
         "pending": today < d + Duration::days(s.absent_apply_days as i64 + 1), "override": override_row.as_ref().map(|o| o.0),
     });
     let fp: String = Sha256::digest(fp_doc.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
@@ -330,6 +332,9 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
     }
     if not_detected {
         out.flags.push(day::SHIFT_NOT_DETECTED);
+    }
+    if no_roster {
+        out.flags.push(day::NO_ROSTER);
     }
     let mut status = serde_json::to_value(out.status).expect("status serialises");
     let mut net = out.net_minutes;

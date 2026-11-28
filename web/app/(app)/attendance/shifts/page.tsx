@@ -16,7 +16,20 @@ const DEFAULT_TIMES: Times = {
   break_kind: "", break_start: "", break_end: "", half_day_point: "middle", half_day_time: "",
 };
 const TIME_KEYS = ["start_time", "end_time", "flex_earliest", "flex_latest", "core_start", "core_end", "break_start", "break_end", "half_day_time"];
-const opts = (xs: string[]) => xs.map((x) => ({ value: x, label: x.replace(/_/g, " ") }));
+const opts = (xs: string[]) => xs.map((x) => ({ value: x, label: LABEL[x] ?? x.replace(/_/g, " ") }));
+const LABEL: Record<string, string> = {
+  fixed: "Fixed times", flexible: "Flexible hours", flexible_core: "Flexible with core hours", split: "Split (two parts)",
+  start_date: "Day it starts", end_date: "Day it ends",
+  window: "Any time in a window",
+  middle: "Middle of the shift", fixed_time: "At a set time", break_start: "When the break starts",
+};
+const KIND_HINT: Record<string, string> = {
+  fixed: "Works the set start to end; late and early are checked.",
+  flexible: "Only hours count; come any time between the flex earliest and latest.",
+  flexible_core: "Hours count, and the core hours must be covered.",
+  split: "Two parts with a gap; the gap is this shift's break.",
+};
+const kindLabel = (k?: string) => (k ? LABEL[k] ?? k : "—");
 
 /** Form values → API body: times get seconds, blanks become null. */
 const timesBody = (t: Times) =>
@@ -25,60 +38,62 @@ const fromVersion = (v: Times | null) => (v ? Object.fromEntries(Object.keys(DEF
 
 function TimesForm({ t, set, error }: { t: Times; set: (t: Times) => void; error: any }) {
   const f = (k: string) => (v: any) => set({ ...t, [k]: v });
-  const time = (k: string, label: string) => (
-    <Field label={label} name={k} error={error}>
+  const time = (k: string, label: string, hint?: string) => (
+    <Field label={label} name={k} error={error} hint={hint}>
       <input type="time" value={t[k] ?? ""} onChange={(e) => f(k)(e.target.value)} />
     </Field>
   );
-  const num = (k: string, label: string) => (
-    <Field label={label} name={k} error={error}>
+  const num = (k: string, label: string, hint?: string) => (
+    <Field label={label} name={k} error={error} hint={hint}>
       <input type="number" value={t[k]} onChange={(e) => f(k)(Number(e.target.value))} />
     </Field>
   );
   return (
     <div className="grid2">
-      <Field label="Kind" name="kind" error={error}>
+      <Field label="Kind" name="kind" error={error} hint={KIND_HINT[t.kind]}>
         <Select value={t.kind} onChange={f("kind")} options={opts(["fixed", "flexible", "flexible_core", "split"])} />
       </Field>
       {time("start_time", "Start")}
       {time("end_time", "End")}
-      {num("required_minutes", "Required minutes")}
-      {num("window_before_min", "Window before start (min)")}
-      {num("window_after_min", "Window after end (min)")}
+      {num("required_minutes", "Hours needed (minutes)", "Minutes worked for a full day, e.g. 480 = 8 hours.")}
+      {num("window_before_min", "Punch window before start (min)", "How early a punch still counts for this shift.")}
+      {num("window_after_min", "Punch window after end (min)", "How late a punch still counts for this shift.")}
       <Field label="Night shift" name="is_night" error={error}>
         <span className="check"><input type="checkbox" checked={!!t.is_night} onChange={(e) => f("is_night")(e.target.checked)} /> Crosses midnight</span>
       </Field>
-      <Field label="Night date rule" name="night_date_rule" error={error}>
-        <Select value={t.night_date_rule} onChange={f("night_date_rule")} options={opts(["start_date", "end_date"])} />
-      </Field>
+      {t.is_night && (
+        <Field label="Count the night on" name="night_date_rule" error={error} hint="Which date the attendance is recorded against.">
+          <Select value={t.night_date_rule} onChange={f("night_date_rule")} options={opts(["start_date", "end_date"])} />
+        </Field>
+      )}
       {(t.kind === "flexible" || t.kind === "flexible_core") && (
         <>
-          {time("flex_earliest", "Flex earliest")}
-          {time("flex_latest", "Flex latest")}
+          {time("flex_earliest", "Earliest start", "No one can start before this.")}
+          {time("flex_latest", "Latest end", "Work after this doesn't count.")}
         </>
       )}
       {t.kind === "flexible_core" && (
         <>
-          {time("core_start", "Core start")}
-          {time("core_end", "Core end")}
+          {time("core_start", "Core hours from", "Must be present from this time…")}
+          {time("core_end", "Core hours to", "…until this time.")}
         </>
       )}
       {/* Only a split shift carries its break (the gap); other breaks come from the policy set (BK, AC-AT-01.2). */}
       {t.kind === "split" && (
-        <Field label="Break" name="break_kind" error={error}>
-          <Select value={t.break_kind} onChange={f("break_kind")} options={opts(["fixed", "window"])} placeholder="No break" />
+        <Field label="Gap between parts" name="break_kind" error={error} hint="Fixed times: the gap is exactly these times. Window: taken any time inside it.">
+          <Select value={t.break_kind} onChange={f("break_kind")} options={opts(["fixed", "window"])} placeholder="No gap" />
         </Field>
       )}
       {t.kind === "split" && t.break_kind && (
         <>
-          {time("break_start", "Break start")}
-          {time("break_end", "Break end")}
+          {time("break_start", "Gap starts")}
+          {time("break_end", "Gap ends")}
         </>
       )}
-      <Field label="Half-day point" name="half_day_point" error={error}>
-        <Select value={t.half_day_point} onChange={f("half_day_point")} options={opts(["middle", "fixed_time", "break_start"])} />
+      <Field label="Half day splits at" name="half_day_point" error={error} hint="Working only one side of this counts as a half day.">
+        <Select value={t.half_day_point} onChange={f("half_day_point")} options={opts(["middle", "fixed_time", t.kind === "split" ? "break_start" : ""].filter(Boolean))} />
       </Field>
-      {t.half_day_point === "fixed_time" && time("half_day_time", "Half-day time")}
+      {t.half_day_point === "fixed_time" && time("half_day_time", "Half day at")}
     </div>
   );
 }
@@ -113,7 +128,7 @@ export default function Shifts() {
             { h: "Code", c: (s) => <Code>{s.code}</Code> },
             { h: "Name", c: (s) => s.name },
             { h: "Branch", c: (s) => bname(s.branch_id) },
-            { h: "Kind", c: (s) => s.current?.kind?.replace(/_/g, " ") ?? "—" },
+            { h: "Kind", c: (s) => kindLabel(s.current?.kind) },
             { h: "Times", c: (s) => (s.current ? `${hhmm(s.current.start_time)}–${hhmm(s.current.end_time)}${s.current.is_night ? " (night)" : ""}` : "—") },
             { h: "State", c: (s) => <Pill value={s.state} /> },
           ]}
@@ -222,7 +237,7 @@ function ShiftDetail({ shift, manage, branches, onClose, onChanged }: { shift: S
           rows={versions.data?.items}
           cols={[
             { h: "From", c: (v) => fmtDate(v.valid_from) },
-            { h: "Kind", c: (v) => v.kind.replace(/_/g, " ") },
+            { h: "Kind", c: (v) => kindLabel(v.kind) },
             { h: "Times", c: (v) => `${hhmm(v.start_time)}–${hhmm(v.end_time)}` },
             { h: "Required", c: (v) => `${v.required_minutes} min` },
             { h: "Break", c: (v) => (v.break_kind ? `${v.break_kind} ${hhmm(v.break_start)}–${hhmm(v.break_end)}` : "—") },

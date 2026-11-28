@@ -194,34 +194,9 @@ pub(crate) async fn apply_entries(ctx: &mut Ctx, em: &EmSettings, entries: Vec<E
                 _ => {}
             }
         }
-        let current: Option<(Uuid, Option<Uuid>, bool)> = sqlx::query_as(
-            "SELECT id, shift_id, is_weekly_off FROM app.roster_entries WHERE employee_id = $1 AND work_date = $2 AND superseded_at IS NULL FOR UPDATE",
-        )
-        .bind(en.employee_id)
-        .bind(en.work_date)
-        .fetch_optional(&mut *ctx.tx)
-        .await?;
-        if current.is_some_and(|(_, s, w)| s == en.shift_id && w == en.is_weekly_off) {
+        if !replace_entry(ctx, &en, source).await? {
             out.unchanged += 1;
             continue;
-        }
-        if let Some((old, ..)) = current {
-            sqlx::query("UPDATE app.roster_entries SET superseded_at = now() WHERE id = $1").bind(old).execute(&mut *ctx.tx).await?;
-        }
-        let new: Uuid = sqlx::query_scalar(
-            "INSERT INTO app.roster_entries (org_id, employee_id, work_date, shift_id, is_weekly_off, source)
-             VALUES ($1, $2, $3, $4, $5, $6::app.roster_source) RETURNING id",
-        )
-        .bind(ctx.org_id)
-        .bind(en.employee_id)
-        .bind(en.work_date)
-        .bind(en.shift_id)
-        .bind(en.is_weekly_off)
-        .bind(source)
-        .fetch_one(&mut *ctx.tx)
-        .await?;
-        if let Some((old, ..)) = current {
-            sqlx::query("UPDATE app.roster_entries SET superseded_by_id = $2 WHERE id = $1").bind(old).bind(new).execute(&mut *ctx.tx).await?;
         }
         out.applied += 1;
         changed.entry(en.employee_id).or_default().push(json!({ "work_date": en.work_date, "shift_id": en.shift_id, "is_weekly_off": en.is_weekly_off }));
@@ -232,6 +207,40 @@ pub(crate) async fn apply_entries(ctx: &mut Ctx, em: &EmSettings, entries: Vec<E
         ctx.event("ScheduleChanged", "employee", e, json!({ "employee_ids": [e], "dates": dates })).await?;
     }
     Ok(out)
+}
+
+/// Supersedes the current entry for the employee-date with `en`. False when it already says the same.
+/// No checks here: callers check access, employment, locks and the shift first.
+pub(crate) async fn replace_entry(ctx: &mut Ctx, en: &Entry, source: &str) -> ApiResult<bool> {
+    let current: Option<(Uuid, Option<Uuid>, bool)> = sqlx::query_as(
+        "SELECT id, shift_id, is_weekly_off FROM app.roster_entries WHERE employee_id = $1 AND work_date = $2 AND superseded_at IS NULL FOR UPDATE",
+    )
+    .bind(en.employee_id)
+    .bind(en.work_date)
+    .fetch_optional(&mut *ctx.tx)
+    .await?;
+    if current.is_some_and(|(_, s, w)| s == en.shift_id && w == en.is_weekly_off) {
+        return Ok(false);
+    }
+    if let Some((old, ..)) = current {
+        sqlx::query("UPDATE app.roster_entries SET superseded_at = now() WHERE id = $1").bind(old).execute(&mut *ctx.tx).await?;
+    }
+    let new: Uuid = sqlx::query_scalar(
+        "INSERT INTO app.roster_entries (org_id, employee_id, work_date, shift_id, is_weekly_off, source)
+         VALUES ($1, $2, $3, $4, $5, $6::app.roster_source) RETURNING id",
+    )
+    .bind(ctx.org_id)
+    .bind(en.employee_id)
+    .bind(en.work_date)
+    .bind(en.shift_id)
+    .bind(en.is_weekly_off)
+    .bind(source)
+    .fetch_one(&mut *ctx.tx)
+    .await?;
+    if let Some((old, ..)) = current {
+        sqlx::query("UPDATE app.roster_entries SET superseded_by_id = $2 WHERE id = $1").bind(old).bind(new).execute(&mut *ctx.tx).await?;
+    }
+    Ok(true)
 }
 
 /// Shared shape of R2, R4, R5: permission, idempotency, apply, reply.

@@ -7,7 +7,7 @@ import { useAction, useApi } from "@/lib/hooks";
 type Row = { event: string; channel: string; recipient: string; enabled: boolean };
 
 // shortcut: the events the server sends today (notify.rs); extend when more events go out.
-const EVENTS = ["MissedPunch", "RegularisationSubmitted", "ApprovalsPending"];
+const EVENTS = ["MissedPunch", "RegularisationSubmitted", "ApprovalsPending", "ShiftRequestSubmitted", "ShiftSwapProposed"];
 const RECIPIENTS = ["employee", "manager", "hr_manager", "org_admin"];
 const CHANNELS = ["in_app", "email"];
 const key = (r: Omit<Row, "enabled">) => `${r.event}|${r.channel}|${r.recipient}`;

@@ -1066,3 +1066,97 @@ async fn regularisation_and_corrections_end_to_end() {
     drain().await;
     assert_eq!(day_of(d1.clone()).await["status"], "present");
 }
+
+async fn ask(w: &World, token: Option<&str>, key: &str, body: Value) -> (StatusCode, axum::http::HeaderMap, Value) {
+    call(w, Method::POST, "/v1/attendance/shift-requests", token, &[("idempotency-key", key)], Some(body)).await
+}
+
+#[tokio::test]
+#[ignore = "writes to the database in DATABASE_URL"]
+async fn shift_change_and_swap_requests_end_to_end() {
+    let w = world().await;
+    let reqs = "/v1/attendance/shift-requests";
+    let d: String = sqlx::query_scalar("SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date + 3)::text").fetch_one(&w.pool).await.unwrap();
+    let past: String = sqlx::query_scalar("SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date)::text").fetch_one(&w.pool).await.unwrap();
+
+    // Kavi manages Asha (morning) and Ravi (evening), all at Chennai.
+    let mor = shift(&w, "key-sw-mor1", json!({ "code": "MOR", "name": "Morning", "valid_from": "2026-01-01", "start_time": "06:00", "end_time": "14:00" })).await;
+    let eve = shift(&w, "key-sw-eve1", json!({ "code": "EVE", "name": "Evening", "valid_from": "2026-01-01", "start_time": "14:00", "end_time": "22:00" })).await;
+    let (_, kavi) = post(&w, "/v1/employees", "key-sw-kavi1", new_employee(&w, "Kavi", "+919800000191")).await;
+    let kavi_id = kavi["id"].as_str().unwrap().to_string();
+    let mut ids = Vec::new();
+    for (n, (name, mobile)) in [("Asha", "+919800000192"), ("Ravi", "+919800000193")].into_iter().enumerate() {
+        let mut body = new_employee(&w, name, mobile);
+        body["job"]["reporting_manager_id"] = json!(kavi_id);
+        let (s, e) = post(&w, "/v1/employees", &format!("key-sw-emp{n}"), body).await;
+        assert_eq!(s, StatusCode::CREATED, "{e}");
+        ids.push(e["id"].as_str().unwrap().to_string());
+    }
+    let (asha, ravi) = (ids[0].clone(), ids[1].clone());
+    roster(&w, &w.admin, "key-sw-ro1", json!([{ "employee_id": asha, "work_date": d, "shift_id": mor }, { "employee_id": ravi, "work_date": d, "shift_id": eve }])).await;
+    let asha_t = employee_user(&w, &asha, "Asha", &["employee"]).await;
+    let ravi_t = employee_user(&w, &ravi, "Ravi", &["employee"]).await;
+    let kavi_t = employee_user(&w, &kavi_id, "Kavi", &["employee", "manager"]).await;
+    let (asha_t, ravi_t, kavi_t) = (Some(asha_t.as_str()), Some(ravi_t.as_str()), Some(kavi_t.as_str()));
+    let act = |id: &str, what: &str| format!("{reqs}/{id}/{what}");
+    let swap = json!({ "work_date": d, "kind": "swap", "colleague_employee_id": ravi, "reason": "Family function" });
+
+    // SH-12 is off by default (AC-AT-05.3).
+    let (s, _, b) = ask(&w, asha_t, "key-sw-0001", swap.clone()).await;
+    assert_eq!((s, b["code"].as_str(), b["meta"]["setting"].as_str()), (StatusCode::FORBIDDEN, Some("feature_disabled"), Some("SH-12")), "{b}");
+    sqlx::query("INSERT INTO app.policy_set_versions (org_id, policy_set_id, valid_from, state, settings)
+                 SELECT $1, id, DATE '2026-01-01', 'approved', '{\"shift_requests_enabled\": true}' FROM app.policy_sets WHERE org_id = $1 AND is_default")
+        .bind(w.org).execute(&w.pool).await.unwrap();
+
+    // Only future dates; a change to the shift you already have is refused.
+    let (s, _, b) = ask(&w, asha_t, "key-sw-0002", json!({ "work_date": past, "kind": "change", "shift_id": eve, "reason": "x" })).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("date_not_future")), "{b}");
+    let (s, _, b) = ask(&w, asha_t, "key-sw-0003", json!({ "work_date": d, "kind": "change", "shift_id": mor, "reason": "x" })).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("shift_not_allowed")), "{b}");
+
+    // The form's options: Asha (MOR) may change to EVE or swap with Ravi (EVE).
+    let (s, _, o) = call(&w, Method::GET, &format!("/v1/attendance/me/shift-options?date={d}"), asha_t, &[], None).await;
+    assert_eq!((s, o["current"]["code"].as_str(), o["shifts"][0]["code"].as_str(), o["colleagues"][0]["full_name"].as_str()), (StatusCode::OK, Some("MOR"), Some("EVE"), Some("Ravi")), "{o}");
+
+    // SW1 swap: pending, Ravi (the colleague) is told and sees it.
+    let (s, _, r) = ask(&w, asha_t, "key-sw-0004", swap.clone()).await;
+    assert_eq!((s, r["state"].as_str(), r["wanted_shift"]["code"].as_str(), r["colleague_shift"]["code"].as_str()), (StatusCode::CREATED, Some("pending"), Some("EVE"), Some("MOR")), "{r}");
+    let rid = r["id"].as_str().unwrap().to_string();
+    let told: i64 = sqlx::query_scalar("SELECT count(*) FROM app.in_app_notifications WHERE org_id = $1 AND event IN ('ShiftSwapProposed', 'ShiftRequestSubmitted')")
+        .bind(w.org).fetch_one(&w.pool).await.unwrap();
+    assert_eq!(told, 2);
+    let (_, _, seen) = call(&w, Method::GET, reqs, ravi_t, &[], None).await;
+    assert_eq!(seen["items"][0]["id"].as_str(), Some(rid.as_str()), "{seen}");
+
+    // SW3: the requester can't approve; the manager sees it awaiting them, and one approval writes both entries (ATQ-12).
+    let (s, _, _) = call(&w, Method::POST, &act(&rid, "approve"), asha_t, &[("if-match", "\"1\"")], Some(json!({}))).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (_, _, waiting) = call(&w, Method::GET, &format!("{reqs}?awaiting_me=true"), kavi_t, &[], None).await;
+    assert_eq!(waiting["items"].as_array().map(Vec::len), Some(1), "{waiting}");
+    let (s, _, b) = call(&w, Method::POST, &act(&rid, "approve"), kavi_t, &[("if-match", "\"1\"")], Some(json!({}))).await;
+    assert_eq!((s, b["state"].as_str()), (StatusCode::OK, Some("approved")), "{b}");
+    let (a, r2) = (day(&w, &asha, &d).await, day(&w, &ravi, &d).await);
+    assert_eq!((a["code"].as_str(), a["source"].as_str(), r2["code"].as_str()), (Some("EVE"), Some("swap"), Some("MOR")), "{a} {r2}");
+    let (s, _, b) = call(&w, Method::POST, &act(&rid, "reject"), kavi_t, &[("if-match", "\"2\"")], Some(json!({ "reason": "x" }))).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::CONFLICT, Some("not_pending")), "{b}");
+
+    // A change: rejection needs a reason; another one is withdrawn by the requester.
+    let (s, _, c) = ask(&w, asha_t, "key-sw-0005", json!({ "work_date": d, "kind": "change", "shift_id": mor, "reason": "Back to mornings" })).await;
+    assert_eq!(s, StatusCode::CREATED, "{c}");
+    let cid = c["id"].as_str().unwrap().to_string();
+    let (s, _, b) = call(&w, Method::POST, &act(&cid, "reject"), kavi_t, &[("if-match", "\"1\"")], Some(json!({}))).await;
+    assert_eq!((s, b["errors"][0]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("required")), "{b}");
+    let (s, _, b) = call(&w, Method::POST, &act(&cid, "reject"), kavi_t, &[("if-match", "\"1\"")], Some(json!({ "reason": "Short of evening staff" }))).await;
+    assert_eq!((s, b["state"].as_str()), (StatusCode::OK, Some("rejected")), "{b}");
+    let (_, _, c2) = ask(&w, asha_t, "key-sw-0006", json!({ "work_date": d, "kind": "change", "shift_id": mor, "reason": "Again" })).await;
+    let c2 = c2["id"].as_str().unwrap().to_string();
+    let (s, _, b) = call(&w, Method::POST, &act(&c2, "withdraw"), asha_t, &[("if-match", "\"1\"")], Some(json!({}))).await;
+    assert_eq!((s, b["state"].as_str()), (StatusCode::OK, Some("withdrawn")), "{b}");
+
+    // A swap whose roster changed before the decision can't be approved.
+    let (s, _, r3) = ask(&w, asha_t, "key-sw-0007", swap).await;
+    assert_eq!(s, StatusCode::CREATED, "{r3}");
+    roster(&w, &w.admin, "key-sw-ro2", json!([{ "employee_id": ravi, "work_date": d, "shift_id": eve }])).await;
+    let (s, _, b) = call(&w, Method::POST, &act(r3["id"].as_str().unwrap(), "approve"), kavi_t, &[("if-match", "\"1\"")], Some(json!({}))).await;
+    assert_eq!((s, b["code"].as_str()), (StatusCode::CONFLICT, Some("roster_changed")), "{b}");
+}

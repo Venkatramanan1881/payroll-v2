@@ -38,6 +38,7 @@ export const NAV: NavSection[] = [
       { href: "/attendance/roster", label: "Roster", icon: "calendar_view_week", perm: ["attendance.roster.view"] },
       { href: "/attendance/holidays", label: "Holiday calendars", icon: "event", perm: ["attendance.roster.view", "attendance.calendar.manage"] },
       { href: "/attendance/optional-holidays", label: "Optional holiday picks", icon: "event_available", perm: ["attendance.optional_holiday.approve"] },
+      { href: "/attendance/shift-requests", label: "Shift requests", icon: "swap_horiz", perm: ["attendance.shift_swap.approve"] },
     ],
   },
   {

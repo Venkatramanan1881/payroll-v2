@@ -107,6 +107,7 @@ A unit with no stored row is shown as `open`, `id: null`, `version: 0`. The firs
 | SW2 | `GET /shift-requests` | requester, or `attendance.shift_swap.approve` · employee-view | `?state=&awaiting_me=true` | | |
 | SW3 | `POST /shift-requests/{id}/approve` · `/reject {reason}` | `attendance.shift_swap.approve` · approver | → request | `not_pending`, `cannot_decide_own_request`, `date_locked` | If-Match · audit · approve writes both roster entries (source `swap` / `shift_change`) · `ScheduleChanged` |
 | SW4 | `POST /shift-requests/{id}/withdraw` | the requester | → request | `not_pending` | If-Match · audit |
+| SW5 | `GET /me/shift-options?date=` | `attendance.shift_swap.request` · self | → `{date, current: shift \| null, shifts: [{id, code, name}], colleagues: [{id, employee_code, full_name, shift}]}` | | For the request form: shifts the employee may change to, and colleagues at the same branch with a different shift where each is allowed the other's (added in build, 28 November 2026) |
 
 ## 4. Holidays and weekly offs
 

@@ -26,6 +26,7 @@ pub mod rate;
 pub mod regularise;
 pub mod reports;
 pub mod roster;
+pub mod shift_requests;
 pub mod shifts;
 pub mod status;
 pub mod vendor;
@@ -172,6 +173,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/attendance/holiday-calendars/{id}/holidays/{hid}/remove", post(holidays::holiday_remove))
         .route("/v1/attendance/branches/{id}/holiday-calendars/{year}", put(holidays::branch_link))
         .route("/v1/attendance/me/optional-holidays", get(holidays::my_optional))
+        .route("/v1/attendance/shift-requests", get(shift_requests::list).post(shift_requests::create))
+        .route("/v1/attendance/me/shift-options", get(shift_requests::my_options))
+        .route("/v1/attendance/shift-requests/{id}/approve", post(shift_requests::approve))
+        .route("/v1/attendance/shift-requests/{id}/reject", post(shift_requests::reject))
+        .route("/v1/attendance/shift-requests/{id}/withdraw", post(shift_requests::withdraw))
         .route("/v1/attendance/optional-holiday-picks", get(holidays::picks).post(holidays::pick))
         .route("/v1/attendance/optional-holiday-picks/{id}/approve", post(holidays::approve))
         .route("/v1/attendance/optional-holiday-picks/{id}/reject", post(holidays::reject))

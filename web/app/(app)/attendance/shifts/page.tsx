@@ -20,7 +20,7 @@ const opts = (xs: string[]) => xs.map((x) => ({ value: x, label: x.replace(/_/g,
 
 /** Form values → API body: times get seconds, blanks become null. */
 const timesBody = (t: Times) =>
-  Object.fromEntries(Object.keys(DEFAULT_TIMES).map((k) => [k, TIME_KEYS.includes(k) ? toTime(t[k]) : k === "break_kind" ? t[k] || null : t[k]]));
+  Object.fromEntries(Object.keys(DEFAULT_TIMES).map((k) => [k, TIME_KEYS.includes(k) ? toTime(t[k]) : k === "break_kind" ? (t.kind === "split" && t[k]) || null : t[k]]));
 const fromVersion = (v: Times | null) => (v ? Object.fromEntries(Object.keys(DEFAULT_TIMES).map((k) => [k, TIME_KEYS.includes(k) ? hhmm(v[k]) : v[k] ?? ""])) : { ...DEFAULT_TIMES });
 
 function TimesForm({ t, set, error }: { t: Times; set: (t: Times) => void; error: any }) {
@@ -63,10 +63,13 @@ function TimesForm({ t, set, error }: { t: Times; set: (t: Times) => void; error
           {time("core_end", "Core end")}
         </>
       )}
-      <Field label="Break" name="break_kind" error={error}>
-        <Select value={t.break_kind} onChange={f("break_kind")} options={opts(["fixed", "window"])} placeholder="No break" />
-      </Field>
-      {t.break_kind && (
+      {/* Only a split shift carries its break (the gap); other breaks come from the policy set (BK, AC-AT-01.2). */}
+      {t.kind === "split" && (
+        <Field label="Break" name="break_kind" error={error}>
+          <Select value={t.break_kind} onChange={f("break_kind")} options={opts(["fixed", "window"])} placeholder="No break" />
+        </Field>
+      )}
+      {t.kind === "split" && t.break_kind && (
         <>
           {time("break_start", "Break start")}
           {time("break_end", "Break end")}

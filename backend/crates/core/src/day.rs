@@ -145,6 +145,7 @@ pub const PROVISIONAL_LATE: &str = "late_compensation_pending";
 pub const MAKE_UP_PENDING: &str = "make_up_pending";
 pub const PROPORTIONAL: &str = "proportional_pay";
 pub const OVERLAP: &str = "window_overlap";
+pub const SHIFT_NOT_DETECTED: &str = "shift_not_detected";
 
 fn mins(a: NaiveDateTime, b: NaiveDateTime) -> i64 {
     (b - a).num_minutes()
@@ -188,6 +189,21 @@ pub fn assign(at: NaiveDateTime, days: &[(NaiveDate, &ShiftTimes)]) -> Option<(N
         .collect();
     let best = hits.iter().min_by_key(|h| h.1)?;
     Some((best.0, hits.len() > 1))
+}
+
+/// SH-08 auto-detect (ATT-04, AC-AT-03.1–2): the first punch inside any candidate's window on `date` picks the
+/// candidate whose start is nearest it, within that candidate's window; on a tie the earlier start. None = no
+/// candidate's window holds any punch (the caller keeps the default shift and flags the day).
+pub fn detect(date: NaiveDate, punches: &[NaiveDateTime], shifts: &[&ShiftTimes]) -> Option<usize> {
+    let inside = |i: usize, at: NaiveDateTime| {
+        let (a, b) = window(date, shifts[i]);
+        a <= at && at <= b
+    };
+    let first = punches.iter().copied().filter(|at| (0..shifts.len()).any(|i| inside(i, *at))).min()?;
+    (0..shifts.len()).filter(|i| inside(*i, first)).min_by_key(|i| {
+        let start = bounds(date, shifts[*i]).0;
+        (mins(first, start).abs(), start)
+    })
 }
 
 /// A time of day placed inside the shift that starts at `start`.
@@ -942,5 +958,31 @@ mod tests {
         let s = AtSettings { rounding: true, ..AtSettings::default() };
         let r = calculate(&day(&sh, &s, io((9, 8), Some((18, 0)))));
         assert_eq!((r.net_minutes, r.net_minutes_rounded), (hm(7, 52), hm(7, 45)));
+    }
+
+    #[test]
+    fn detect_picks_nearest_start_within_window() {
+        let sh = |h: u32, before: i32| ShiftTimes {
+            start_time: NaiveTime::from_hms_opt(h, 0, 0).unwrap(),
+            end_time: NaiveTime::from_hms_opt((h + 8) % 24, 0, 0).unwrap(),
+            is_night: h + 8 >= 24,
+            window_before_min: before,
+            ..ShiftTimes::default()
+        };
+        let (mor, gen, eve) = (sh(6, 180), sh(9, 180), sh(14, 180));
+        let all = [&mor, &gen, &eve];
+        // 08:10 is inside MOR's and GEN's windows; GEN starts nearer (50 min vs 130).
+        assert_eq!(detect(date(), &[at(8, 10), at(17, 0)], &all), Some(1));
+        // The first punch decides, not a later one nearer another start.
+        assert_eq!(detect(date(), &[at(13, 55), at(5, 50)], &all), Some(0));
+        // Tie (07:30 is 90 minutes from both 06:00 and 09:00): the earlier shift.
+        assert_eq!(detect(date(), &[at(7, 30)], &all), Some(0));
+        // 12:40 is nearer EVE's 14:00 start, but EVE's window (1 h before) opens at 13:00: only GEN is eligible.
+        let eve_tight = sh(14, 60);
+        assert_eq!(detect(date(), &[at(12, 40)], &[&gen, &eve_tight]), Some(0));
+        // No window holds any punch: none detected (AC-AT-03.2).
+        let gen_only = ShiftTimes { window_after_min: 0, ..sh(9, 60) };
+        assert_eq!(detect(date(), &[at(3, 0), at(23, 0)], &[&gen_only]), None);
+        assert_eq!(detect(date(), &[], &all), None);
     }
 }

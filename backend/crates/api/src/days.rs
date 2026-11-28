@@ -34,12 +34,48 @@ const SWEEP_DAYS: i64 = 8;
 /// The expected schedule on a date (ScheduleResolver, DOMAIN_MODEL §5).
 pub(crate) struct Sched {
     pub master: Uuid,
+    pub job: Uuid,
+    /// A roster entry exists for the date (then SH-08 never overrides it).
+    pub rostered: bool,
     pub zone: String,
     pub shift_version: Option<Uuid>,
     pub shift: Option<ShiftTimes>,
     pub shift_doc: Value,
     pub weekly_off: bool,
     pub holiday: bool,
+}
+
+/// A shift version `v` of shift `s` as the engine's ShiftTimes, and as shown in a day's detail ($3 = detected).
+const TIMES: &str = "CASE WHEN v.id IS NULL THEN NULL ELSE jsonb_build_object('kind', v.kind, 'start_time', v.start_time, 'end_time', v.end_time,
+    'is_night', v.is_night, 'night_date_rule', v.night_date_rule, 'required_minutes', v.required_minutes,
+    'window_before_min', v.window_before_min, 'window_after_min', v.window_after_min, 'flex_earliest', v.flex_earliest,
+    'flex_latest', v.flex_latest, 'core_start', v.core_start, 'core_end', v.core_end, 'break_kind', v.break_kind,
+    'break_start', v.break_start, 'break_end', v.break_end, 'half_day_point', v.half_day_point, 'half_day_time', v.half_day_time) END";
+const DOC: &str = "CASE WHEN v.id IS NULL THEN 'null'::jsonb ELSE jsonb_build_object('id', s.id, 'code', s.code, 'name', s.name,
+    'start', left(v.start_time::text, 5), 'end', left(v.end_time::text, 5), 'detected', $3::bool) END";
+/// The latest approved version of shift `s` on date $2.
+const VERSION: &str = "LEFT JOIN LATERAL (SELECT * FROM app.shift_versions w WHERE w.shift_id = s.id AND w.state = 'approved' AND w.valid_from <= $2
+    ORDER BY w.valid_from DESC LIMIT 1) v ON true";
+
+/// SH-08 candidates: the employee's allowed shifts, or with none set every active shift usable at the master branch
+/// (ATQ-07), each as (version, times, detail doc marked detected).
+async fn detect_candidates(tx: &mut Tx, sched: &Sched, date: NaiveDate) -> ApiResult<Vec<(Uuid, ShiftTimes, Value)>> {
+    let rows: Vec<(Uuid, Value, Value)> = sqlx::query_as(&format!(
+        "SELECT v.id, {TIMES}, {DOC} FROM app.shifts s {VERSION}
+         WHERE v.id IS NOT NULL AND s.state = 'active' AND (s.branch_id IS NULL OR s.branch_id = $4)
+           AND (NOT EXISTS (SELECT 1 FROM app.job_version_allowed_shifts a WHERE a.job_version_id = $1)
+                OR EXISTS (SELECT 1 FROM app.job_version_allowed_shifts a WHERE a.job_version_id = $1 AND a.shift_id = s.id))
+         ORDER BY s.code"
+    ))
+    .bind(sched.job)
+    .bind(date)
+    .bind(true)
+    .bind(sched.master)
+    .fetch_all(&mut **tx)
+    .await?;
+    rows.into_iter()
+        .map(|(id, times, doc)| Ok((id, serde_json::from_value::<ShiftTimes>(times).map_err(|_| AppError::internal())?, doc)))
+        .collect()
 }
 
 /// SH-09 weekly off from the policy (fixed days or "2nd and 4th Saturday").
@@ -57,14 +93,7 @@ fn policy_off(date: NaiveDate, s: &AtSettings) -> bool {
 /// calendar (an optional one only when picked and approved, DEC-26). None = not employed that day (INV-AT-10).
 pub(crate) async fn schedule(tx: &mut Tx, employee: Uuid, date: NaiveDate, s: &AtSettings) -> ApiResult<Option<Sched>> {
     let row = sqlx::query(
-        "SELECT jv.master_branch_id, b.time_zone, v.id AS version_id,
-                CASE WHEN v.id IS NULL THEN NULL ELSE jsonb_build_object('kind', v.kind, 'start_time', v.start_time, 'end_time', v.end_time,
-                  'is_night', v.is_night, 'night_date_rule', v.night_date_rule, 'required_minutes', v.required_minutes,
-                  'window_before_min', v.window_before_min, 'window_after_min', v.window_after_min, 'flex_earliest', v.flex_earliest,
-                  'flex_latest', v.flex_latest, 'core_start', v.core_start, 'core_end', v.core_end, 'break_kind', v.break_kind,
-                  'break_start', v.break_start, 'break_end', v.break_end, 'half_day_point', v.half_day_point, 'half_day_time', v.half_day_time) END AS times,
-                CASE WHEN v.id IS NULL THEN 'null'::jsonb ELSE jsonb_build_object('id', s.id, 'code', s.code, 'name', s.name,
-                  'start', left(v.start_time::text, 5), 'end', left(v.end_time::text, 5), 'detected', false) END AS doc,
+        &format!("SELECT jv.master_branch_id, jv.id AS job_id, b.time_zone, v.id AS version_id, {TIMES} AS times, {DOC} AS doc, re.id IS NOT NULL AS rostered,
                 re.is_weekly_off,
                 EXISTS (SELECT 1 FROM app.branch_calendars bc JOIN app.holidays h ON h.calendar_id = bc.calendar_id AND h.holiday_date = $2 AND h.removed_at IS NULL
                         WHERE bc.branch_id = jv.master_branch_id AND bc.year = extract(year FROM $2::date)::smallint
@@ -72,12 +101,12 @@ pub(crate) async fn schedule(tx: &mut Tx, employee: Uuid, date: NaiveDate, s: &A
          FROM app.employee_job_versions jv JOIN app.branches b ON b.id = jv.master_branch_id
          LEFT JOIN app.roster_entries re ON re.employee_id = $1 AND re.work_date = $2 AND re.superseded_at IS NULL
          LEFT JOIN app.shifts s ON s.id = CASE WHEN re.id IS NOT NULL THEN re.shift_id ELSE jv.default_shift_id END
-         LEFT JOIN LATERAL (SELECT * FROM app.shift_versions w WHERE w.shift_id = s.id AND w.state = 'approved' AND w.valid_from <= $2
-                            ORDER BY w.valid_from DESC LIMIT 1) v ON true
-         WHERE jv.employee_id = $1 AND jv.state = 'active' AND jv.valid @> $2::date",
-    )
+         {VERSION}
+         WHERE jv.employee_id = $1 AND jv.state = 'active' AND jv.valid @> $2::date"
+    ))
     .bind(employee)
     .bind(date)
+    .bind(false)
     .fetch_optional(&mut **tx)
     .await?;
     let Some(r) = row else { return Ok(None) };
@@ -85,6 +114,8 @@ pub(crate) async fn schedule(tx: &mut Tx, employee: Uuid, date: NaiveDate, s: &A
     let roster_off: Option<bool> = r.get("is_weekly_off");
     Ok(Some(Sched {
         master: r.get("master_branch_id"),
+        job: r.get("job_id"),
+        rostered: r.get("rostered"),
         zone: r.get("time_zone"),
         shift_version: r.get("version_id"),
         shift,
@@ -109,7 +140,7 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
     }
     let resolved = crate::policies::resolve(tx, employee, d).await?;
     let s = AtSettings::from_json(resolved.as_ref().map(|r| r.settings.clone()).unwrap_or(json!({})));
-    let (Some(sched), Some(policy)) = (schedule(tx, employee, d, &s).await?, resolved) else {
+    let (Some(mut sched), Some(policy)) = (schedule(tx, employee, d, &s).await?, resolved) else {
         // Not employed on that date (exit, joining moved): no result may stand (INV-AT-10).
         if current.is_some() {
             sqlx::query("UPDATE app.day_results SET is_current = false WHERE employee_id = $1 AND work_date = $2 AND is_current")
@@ -146,6 +177,26 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
     .bind(d)
     .fetch_all(&mut **tx)
     .await?;
+    // SH-08: no roster entry, so the first punch may pick the shift (AC-AT-03.1); none fits = default + flag (03.2).
+    // shortcut: neighbouring days keep their roster/default shift for the window overlap below; detect them too
+    // if rotating staff without rosters show wrong overlaps.
+    let mut not_detected = false;
+    if s.auto_detect_shift && !sched.rostered && !rows.is_empty() {
+        let mut opts = detect_candidates(tx, &sched, d).await?;
+        let times: Vec<NaiveDateTime> = rows
+            .iter()
+            .filter(|r| !r.get::<bool, _>("excluded") && r.get::<Option<NaiveDate>, _>("moved").is_none_or(|m| m == d))
+            .map(|r| r.get("local"))
+            .collect();
+        let refs: Vec<&ShiftTimes> = opts.iter().map(|o| &o.1).collect();
+        match day::detect(d, &times, &refs) {
+            Some(i) => {
+                let (version, times, doc) = opts.swap_remove(i);
+                (sched.shift_version, sched.shift, sched.shift_doc) = (Some(version), Some(times), doc);
+            }
+            None => not_detected = true,
+        }
+    }
     // Neighbouring days' shifts, for overlapping windows (W2).
     let mut cands: Vec<(NaiveDate, ShiftTimes)> = Vec::new();
     for x in [d - Duration::days(1), d, d + Duration::days(1)] {
@@ -265,7 +316,7 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
         "punches": input.punches.iter().map(|p| json!([p.id, p.at, format!("{:?}", p.dir), p.flagged, p.branch])).collect::<Vec<_>>(),
         "excluded": excluded, "shift_version": sched.shift_version, "policy_version": policy.version_id, "master": sched.master,
         "weekly_off": sched.weekly_off, "holiday": sched.holiday, "presence": presence_around, "waivers": waivers.iter().map(|w| w.0).collect::<Vec<_>>(),
-        "grace": [input.late_grace_left, input.early_grace_left], "cutoff": input.past_cutoff, "overlap": overlap,
+        "grace": [input.late_grace_left, input.early_grace_left], "cutoff": input.past_cutoff, "overlap": overlap, "not_detected": not_detected,
         "pending": today < d + Duration::days(s.absent_apply_days as i64 + 1), "override": override_row.as_ref().map(|o| o.0),
     });
     let fp: String = Sha256::digest(fp_doc.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
@@ -276,6 +327,9 @@ pub(crate) async fn recalc_day(tx: &mut Tx, org: Uuid, employee: Uuid, d: NaiveD
     let mut out = day::calculate(&input);
     if overlap {
         out.flags.push(day::OVERLAP);
+    }
+    if not_detected {
+        out.flags.push(day::SHIFT_NOT_DETECTED);
     }
     let mut status = serde_json::to_value(out.status).expect("status serialises");
     let mut net = out.net_minutes;

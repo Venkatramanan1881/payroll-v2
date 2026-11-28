@@ -1160,3 +1160,76 @@ async fn shift_change_and_swap_requests_end_to_end() {
     let (s, _, b) = call(&w, Method::POST, &act(r3["id"].as_str().unwrap(), "approve"), kavi_t, &[("if-match", "\"1\"")], Some(json!({}))).await;
     assert_eq!((s, b["code"].as_str()), (StatusCode::CONFLICT, Some("roster_changed")), "{b}");
 }
+
+#[tokio::test]
+#[ignore = "writes to the database in DATABASE_URL"]
+async fn shift_auto_detect_end_to_end() {
+    let w = world().await;
+    let admin = Some(w.admin.as_str());
+    let jobs_token = "jobs-token-jobs-token-jobs-token-sh8";
+    let bearer = format!("Bearer {jobs_token}");
+    let auth = [("authorization", bearer.as_str())];
+    let jobs = api::router(w.state.clone().with_jobs_token(jobs_token));
+    let drain = || async {
+        for _ in 0..30 {
+            let left: i64 = sqlx::query_scalar("SELECT count(*) FROM app.outbox_events WHERE org_id = $1 AND dispatched_at IS NULL")
+                .bind(w.org).fetch_one(&w.pool).await.unwrap();
+            if left == 0 {
+                return;
+            }
+            let (s, _, b) = call_app(&jobs, Method::POST, "/internal/outbox/dispatch", None, &auth, None).await;
+            assert_eq!(s, StatusCode::OK, "{b}");
+        }
+        panic!("outbox not drained");
+    };
+    let dates: Vec<String> = sqlx::query_scalar(
+        "SELECT (t + i)::text FROM (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date AS t) x, unnest(ARRAY[-2, -1]) i ORDER BY i",
+    ).fetch_all(&w.pool).await.unwrap();
+    let (d1, d2) = (dates[0].clone(), dates[1].clone());
+
+    // SH-08 on. GEN is everyone's default; MOR and EVE exist too.
+    sqlx::query("INSERT INTO app.policy_set_versions (org_id, policy_set_id, valid_from, state, settings)
+                 SELECT $1, id, DATE '2026-01-01', 'approved', '{\"auto_detect_shift\": true}' FROM app.policy_sets WHERE org_id = $1 AND is_default")
+        .bind(w.org).execute(&w.pool).await.unwrap();
+    let gen = shift(&w, "key-ad-gen1", json!({ "code": "GEN", "name": "General", "valid_from": "2026-01-01" })).await;
+    let mor = shift(&w, "key-ad-mor1", json!({ "code": "MOR", "name": "Morning", "valid_from": "2026-01-01", "start_time": "06:00", "end_time": "14:00" })).await;
+    let eve = shift(&w, "key-ad-eve1", json!({ "code": "EVE", "name": "Evening", "valid_from": "2026-01-01", "start_time": "14:00", "end_time": "22:00" })).await;
+    // Asha has no allowed list (any branch shift, ATQ-07); Ravi may only work MOR.
+    let mut ids = Vec::new();
+    for (n, (name, mobile, allowed)) in [("Asha", "+919800000291", json!([])), ("Ravi", "+919800000292", json!([mor]))].into_iter().enumerate() {
+        let (s, e) = post(&w, "/v1/employees", &format!("key-ad-emp{n}"), new_employee(&w, name, mobile)).await;
+        assert_eq!(s, StatusCode::CREATED, "{e}");
+        let id = e["id"].as_str().unwrap().to_string();
+        let body = json!({ "effective_from": "2026-04-01", "default_shift_id": gen, "allowed_shift_ids": allowed, "reason": "Assign shifts" });
+        let (s, _, b) = call(&w, Method::PUT, &format!("/v1/attendance/employees/{id}/shifts"), admin, &[("if-match", "\"1\"")], Some(body)).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        ids.push(id);
+    }
+    let (asha, ravi) = (ids[0].clone(), ids[1].clone());
+    // d2: Asha is rostered on EVE, so the roster wins whatever she punches.
+    roster(&w, &w.admin, "key-ad-ro1", json!([{ "employee_id": asha, "work_date": d2, "shift_id": eve }])).await;
+    let entries = [(&d1, json!({ "employee_id": asha, "in_time": "06:05:00", "out_time": "14:00:00" })),
+                   (&d1, json!({ "employee_id": ravi, "in_time": "22:30:00", "out_time": "23:30:00" })),
+                   (&d2, json!({ "employee_id": asha, "in_time": "06:05:00", "out_time": "14:00:00" }))];
+    for (n, (d, e)) in entries.into_iter().enumerate() {
+        let (s, _, b) = call(&w, Method::POST, "/v1/attendance/manual-attendance", admin, &[("idempotency-key", &format!("key-ad-man{n}"))],
+            Some(json!({ "branch_id": w.chn, "work_date": d, "reason": "Device down", "entries": [e] }))).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+    }
+    drain().await;
+    let day_of = |emp: String, d: String| {
+        let w = &w;
+        async move { call(w, Method::GET, &format!("/v1/attendance/employees/{emp}/days/{d}"), Some(&w.admin), &[], None).await.2 }
+    };
+
+    // AC-AT-03.1: the 06:05 first punch is nearest MOR's start, so MOR is used and marked detected; not late.
+    let a1 = day_of(asha.clone(), d1.clone()).await;
+    assert_eq!((a1["shift"]["code"].as_str(), a1["shift"]["detected"].as_bool(), a1["late_mark"].as_bool()), (Some("MOR"), Some(true), Some(false)), "{a1}");
+    // AC-AT-03.2: Ravi's punches are outside MOR's window: default shift, flagged.
+    let r1 = day_of(ravi, d1.clone()).await;
+    assert_eq!((r1["shift"]["code"].as_str(), r1["shift"]["detected"].as_bool()), (Some("GEN"), Some(false)), "{r1}");
+    assert!(r1["flags"].as_array().unwrap().iter().any(|f| f == "shift_not_detected"), "{r1}");
+    // A roster entry is never overridden.
+    let a2 = day_of(asha, d2).await;
+    assert_eq!((a2["shift"]["code"].as_str(), a2["shift"]["detected"].as_bool()), (Some("EVE"), Some(false)), "{a2}");
+}
